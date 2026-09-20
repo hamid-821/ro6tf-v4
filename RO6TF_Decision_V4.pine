@@ -1,0 +1,512 @@
+//@version=6
+// ════════════════════════════════════════════════════════════
+//  RO6TF V4 — تصمیم ورود + فیلتر BTC + حجم + Overbought + خروج + TP/SL
+//  سبک اسکلپ 1m برای وین ریت بالا (محافظه کار)
+//  روش استفاده:
+//   1) Pine Editor → Ctrl+A Delete → Paste → Add to chart (1m)
+//   2) ⚙️ → DECISION SYMBOL خالی = نماد چارت، پر = نماد دلخواه (مثل BRUSDT.P)
+//   3) FILTERS را روشن/خاموش کن
+//  نمره پایه 10 + بونوس حجم 0.5 (کپ 10) - جریمه SPACE
+// ════════════════════════════════════════════════════════════
+
+indicator("RO6TF V4 — BTC VOL EXIT", "RO6TF V4", overlay=true, dynamic_requests=true)
+
+// ───────── INPUTS ─────────
+groupSym = "WATCHLIST — 6 SYMBOLS"
+sym1 = input.string("AKEUSDT.P", "Symbol 1", group=groupSym)
+sym2 = input.string("AVAUSDT.P", "Symbol 2", group=groupSym)
+sym3 = input.string("UAIUSDT.P", "Symbol 3", group=groupSym)
+sym4 = input.string("SUIUSDT.P", "Symbol 4", group=groupSym)
+sym5 = input.string("XRPUSDT.P", "Symbol 5", group=groupSym)
+sym6 = input.string("ADAUSDT.P", "Symbol 6", group=groupSym)
+showWatch = input.bool(true, "Show watchlist", group=groupSym)
+
+groupMain = "DECISION SYMBOL"
+mainSym = input.string("", "نماد جدول بالا (خالی=چارت). مثال: BRUSDT.P", group=groupMain)
+
+groupAdx = "ADX"
+adxReady = input.float(23.0, "Entry needs ADX >=", minval=1, step=0.5, group=groupAdx)
+adxMin = input.float(20.0, "Below = NO", minval=1, step=0.5, group=groupAdx)
+
+groupF = "FILTERS — فیلترهای وین ریت بالا"
+useBtcFilter = input.bool(true, "✅ فیلتر BTC 5m (اگه BTC نزولی بود ورود نده)", group=groupF)
+useVolFilter = input.bool(true, "✅ فیلتر حجم 5m", group=groupF)
+volThresh = input.float(1.5, "حجم باید چند برابر MA20 باشد", minval=0.3, step=0.1, group=groupF)
+overbought = input.float(75.0, "RSI 1m Overbought (بالای قله نخر)", minval=60, maxval=90, step=1, group=groupF)
+spaceBlock = input.float(1.0, "SPACE < این % = ورود ممنوع", minval=0.2, step=0.1, group=groupF)
+spaceWarn = input.float(1.5, "SPACE < این % = هشدار", minval=0.5, step=0.1, group=groupF)
+useExit = input.bool(true, "✅ ردیف خروج اضطراری نمایش بده", group=groupF)
+
+groupTbl = "TABLES"
+posA = input.string("Top-Right", "Decision pos", options=["Top-Right","Top-Left","Bottom-Right","Bottom-Left"], group=groupTbl)
+posB = input.string("Bottom-Right", "Watchlist pos", options=["Top-Right","Top-Left","Bottom-Right","Bottom-Left"], group=groupTbl)
+txtSize = input.string("Small", "Text size", options=["Small","Tiny"], group=groupTbl)
+
+f_sym(string s) =>
+    str.startswith(s, "BINANCE:") ? s : "BINANCE:" + s
+
+cSym = mainSym == "" ? syminfo.tickerid : f_sym(mainSym)
+cSymName = mainSym == "" ? syminfo.ticker : mainSym
+
+f_pos(string p) =>
+    p == "Top-Left" ? position.top_left : p == "Bottom-Right" ? position.bottom_right : p == "Bottom-Left" ? position.bottom_left : position.top_right
+
+// ───────── PACKS ─────────
+f_w1h() =>
+    r = ta.rsi(close, 14)
+    ma = ta.sma(r, 14)
+    sl = ta.change(ma)
+    slp = ta.change(ma[1])
+    up = not na(ma[2]) and sl > 0 and sl > slp
+    st = not na(ma[2]) and sl > 0 and slp <= 0
+    dn = not na(sl) and sl < 0
+    ab = not na(r) and not na(ma) and r > ma
+    [r, ma, up ? 1 : 0, st ? 1 : 0, dn ? 1 : 0, ab ? 1 : 0]
+
+f_w5() =>
+    var float support = na
+    var float resistance = na
+    var int latestType = 0
+    r = ta.rsi(close, 14)
+    ma = ta.sma(r, 14)
+    sl = ta.change(ma)
+    slp = ta.change(ma[1])
+    up = not na(ma[2]) and sl > 0 and sl > slp
+    st = not na(ma[2]) and sl > 0 and slp <= 0
+    dn = not na(sl) and sl < 0
+    ab = not na(r) and not na(ma) and r > ma
+    mline = ta.ema(close, 12) - ta.ema(close, 26)
+    msig = ta.ema(mline, 9)
+    mh = mline - msig
+    mhR = nz(mh) > nz(mh[1])
+    [pd, md, av] = ta.dmi(14, 14)
+    pl = ta.pivotlow(low, 5, 2)
+    ph = ta.pivothigh(high, 5, 2)
+    if not na(pl)
+        support := pl
+        latestType := 1
+    if not na(ph)
+        resistance := ph
+        latestType := 2
+    if not na(support) and low < support
+        support := na
+    if not na(resistance) and high > resistance
+        resistance := na
+    supAct = not na(support) and support < close
+    resAct = not na(resistance) and resistance > close
+    if latestType == 1 and not supAct
+        latestType := resAct ? 2 : 0
+    else if latestType == 2 and not resAct
+        latestType := supAct ? 1 : 0
+    else if latestType == 0
+        latestType := supAct ? 1 : resAct ? 2 : 0
+    supD = supAct and close != 0 ? 100.0 * (close - support) / close : na
+    resD = resAct and close != 0 ? 100.0 * (resistance - close) / close : na
+    vol = volume
+    volMa = ta.sma(volume, 20)
+    [r, ma, up ? 1 : 0, st ? 1 : 0, dn ? 1 : 0, ab ? 1 : 0, mh, mhR ? 1 : 0, av, pd, md, latestType, supAct ? support : na, supD, resAct ? resistance : na, resD, vol, volMa]
+
+f_w1() =>
+    var float support = na
+    var float resistance = na
+    var int latestType = 0
+    r = ta.rsi(close, 14)
+    ma = ta.sma(r, 14)
+    sl = ta.change(ma)
+    slp = ta.change(ma[1])
+    up = not na(ma[2]) and sl > 0 and sl > slp
+    st = not na(ma[2]) and sl > 0 and slp <= 0
+    dn = not na(sl) and sl < 0
+    ab = not na(r) and not na(ma) and r > ma
+    pl = ta.pivotlow(low, 5, 2)
+    ph = ta.pivothigh(high, 5, 2)
+    if not na(pl)
+        support := pl
+        latestType := 1
+    if not na(ph)
+        resistance := ph
+        latestType := 2
+    if not na(support) and low < support
+        support := na
+    if not na(resistance) and high > resistance
+        resistance := na
+    supAct = not na(support) and support < close
+    resAct = not na(resistance) and resistance > close
+    if latestType == 1 and not supAct
+        latestType := resAct ? 2 : 0
+    else if latestType == 2 and not resAct
+        latestType := supAct ? 1 : 0
+    else if latestType == 0
+        latestType := supAct ? 1 : resAct ? 2 : 0
+    supD = supAct and close != 0 ? 100.0 * (close - support) / close : na
+    resD = resAct and close != 0 ? 100.0 * (resistance - close) / close : na
+    [r, ma, up ? 1 : 0, st ? 1 : 0, dn ? 1 : 0, ab ? 1 : 0, latestType, supAct ? support : na, supD, resAct ? resistance : na, resD]
+
+// ───────── SECURITY ─────────
+[cR1h, cMa1h, cUp1h, cSt1h, cDn1h, cAb1h] = request.security(cSym, "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[cR5, cMa5, cUp5, cSt5, cDn5, cAb5, cMh, cMhR, cAv, cPd, cMd, cLiq5t, cLiq5sup, cLiq5supD, cLiq5res, cLiq5resD, cVol5, cVolMa5] = request.security(cSym, "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[cR1, cMa1, cUp1, cSt1, cDn1, cAb1, cLiq1t, cLiq1sup, cLiq1supD, cLiq1res, cLiq1resD] = request.security(cSym, "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+// BTC 5m trend — فیلتر اصلی
+[btcR5, btcMa5, btcUp5, btcSt5, btcDn5, btcAb5] = request.security("BINANCE:BTCUSDT", "5", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+// WATCHLIST
+[w1hR_1, w1hMa_1, w1hUp_1, w1hSt_1, w1hDn_1, w1hAb_1] = request.security(f_sym(sym1), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_1, w5Ma_1, w5Up_1, w5St_1, w5Dn_1, w5Ab_1, w5Mh_1, w5MhR_1, w5Av_1, w5Pd_1, w5Md_1, w5Lt_1, w5Sup_1, w5SupD_1, w5Res_1, w5ResD_1, w5Vol_1, w5VolMa_1] = request.security(f_sym(sym1), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_1, w1Ma_1, w1Up_1, w1St_1, w1Dn_1, w1Ab_1, w1Lt_1, w1Sup_1, w1SupD_1, w1Res_1, w1ResD_1] = request.security(f_sym(sym1), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_2, w1hMa_2, w1hUp_2, w1hSt_2, w1hDn_2, w1hAb_2] = request.security(f_sym(sym2), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_2, w5Ma_2, w5Up_2, w5St_2, w5Dn_2, w5Ab_2, w5Mh_2, w5MhR_2, w5Av_2, w5Pd_2, w5Md_2, w5Lt_2, w5Sup_2, w5SupD_2, w5Res_2, w5ResD_2, w5Vol_2, w5VolMa_2] = request.security(f_sym(sym2), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_2, w1Ma_2, w1Up_2, w1St_2, w1Dn_2, w1Ab_2, w1Lt_2, w1Sup_2, w1SupD_2, w1Res_2, w1ResD_2] = request.security(f_sym(sym2), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_3, w1hMa_3, w1hUp_3, w1hSt_3, w1hDn_3, w1hAb_3] = request.security(f_sym(sym3), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_3, w5Ma_3, w5Up_3, w5St_3, w5Dn_3, w5Ab_3, w5Mh_3, w5MhR_3, w5Av_3, w5Pd_3, w5Md_3, w5Lt_3, w5Sup_3, w5SupD_3, w5Res_3, w5ResD_3, w5Vol_3, w5VolMa_3] = request.security(f_sym(sym3), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_3, w1Ma_3, w1Up_3, w1St_3, w1Dn_3, w1Ab_3, w1Lt_3, w1Sup_3, w1SupD_3, w1Res_3, w1ResD_3] = request.security(f_sym(sym3), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_4, w1hMa_4, w1hUp_4, w1hSt_4, w1hDn_4, w1hAb_4] = request.security(f_sym(sym4), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_4, w5Ma_4, w5Up_4, w5St_4, w5Dn_4, w5Ab_4, w5Mh_4, w5MhR_4, w5Av_4, w5Pd_4, w5Md_4, w5Lt_4, w5Sup_4, w5SupD_4, w5Res_4, w5ResD_4, w5Vol_4, w5VolMa_4] = request.security(f_sym(sym4), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_4, w1Ma_4, w1Up_4, w1St_4, w1Dn_4, w1Ab_4, w1Lt_4, w1Sup_4, w1SupD_4, w1Res_4, w1ResD_4] = request.security(f_sym(sym4), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_5, w1hMa_5, w1hUp_5, w1hSt_5, w1hDn_5, w1hAb_5] = request.security(f_sym(sym5), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_5, w5Ma_5, w5Up_5, w5St_5, w5Dn_5, w5Ab_5, w5Mh_5, w5MhR_5, w5Av_5, w5Pd_5, w5Md_5, w5Lt_5, w5Sup_5, w5SupD_5, w5Res_5, w5ResD_5, w5Vol_5, w5VolMa_5] = request.security(f_sym(sym5), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_5, w1Ma_5, w1Up_5, w1St_5, w1Dn_5, w1Ab_5, w1Lt_5, w1Sup_5, w1SupD_5, w1Res_5, w1ResD_5] = request.security(f_sym(sym5), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_6, w1hMa_6, w1hUp_6, w1hSt_6, w1hDn_6, w1hAb_6] = request.security(f_sym(sym6), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_6, w5Ma_6, w5Up_6, w5St_6, w5Dn_6, w5Ab_6, w5Mh_6, w5MhR_6, w5Av_6, w5Pd_6, w5Md_6, w5Lt_6, w5Sup_6, w5SupD_6, w5Res_6, w5ResD_6, w5Vol_6, w5VolMa_6] = request.security(f_sym(sym6), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_6, w1Ma_6, w1Up_6, w1St_6, w1Dn_6, w1Ab_6, w1Lt_6, w1Sup_6, w1SupD_6, w1Res_6, w1ResD_6] = request.security(f_sym(sym6), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+// ───────── HELPERS ─────────
+f_num(float x, string fmt) =>
+    na(x) ? "—" : str.tostring(x, fmt)
+
+f_rsiState(bool up, bool st, bool dn) =>
+    up ? "🟢 CURVE ↑" : st ? "🟢 START ↑" : dn ? "🔴 DOWN ↓" : "— نیست"
+
+f_dot(bool u, bool d) =>
+    u ? "🟢" : d ? "🔴" : "🟠"
+
+f_liqTxt(int t, float lvl, float dist) =>
+    t == 1 ? "🟢 SUP " + f_num(lvl, format.mintick) + " (" + f_num(dist, "#.##") + "%)" : t == 2 ? "🔴 RES " + f_num(lvl, format.mintick) + " (" + f_num(dist, "#.##") + "%)" : "— PIVOT نیست"
+
+f_verdictTxt(int lv, int n) =>
+    lv == 1 ? "✅ ورود — همه فیلترها سبز" : lv == 2 ? "⏳ صبر — " + str.tostring(n) + " مورد باقی" : "❌ ناورود"
+
+f_verdictBg(int lv) =>
+    lv == 1 ? color.rgb(22, 90, 40) : lv == 2 ? color.rgb(110, 75, 15) : color.rgb(75, 25, 30)
+
+f_scoreColor(int lv) =>
+    lv == 1 ? color.lime : lv == 2 ? color.orange : color.red
+
+f_space(float d5, float d1) =>
+    na(d5) and na(d1) ? na : na(d5) ? d1 : na(d1) ? d5 : math.min(d5, d1)
+
+// ───────── DECISION ENGINE V4 ─────────
+f_decide(int uH, int dH, int aH, int u5, int d5, int a5, int u1, float mh, int mhR, float av, int lt5, int lt1, float r1, float vol, float volMa, float space) =>
+    float s = (uH == 1 ? 2.0 : 0.0) + (u5 == 1 ? 2.0 : 0.0) + (u1 == 1 ? 1.0 : 0.0) + (nz(mh) >= 0 ? 1.5 : 0.0) + (nz(av) >= adxReady ? 1.5 : nz(av) >= adxMin ? 0.75 : 0.0) + (lt5 == 1 ? 1.0 : 0.0) + (lt1 == 1 ? 1.0 : 0.0)
+    int hardF = 0
+    int missing = 0
+    string txt = ""
+    // پایه
+    if dH == 1
+        hardF += 1
+        txt := txt + "⛔ کمان RSI 1H رو به پایین\n"
+    if not (nz(mh) >= 0) and mhR != 1
+        hardF += 1
+        txt := txt + "⛔ MACD 5m سرخ و ریزشی\n"
+    if nz(av) < adxMin
+        hardF += 1
+        txt := txt + "⛔ ADX زیر " + str.tostring(adxMin, "#") + " — روند ضعیف\n"
+    if lt5 == 2
+        hardF += 1
+        txt := txt + "⛔ LIQ 5m روی مقاومت\n"
+    if uH != 1 and dH != 1
+        missing += 1
+        txt := txt + "⏳ RSI 1H کمان ندارد\n"
+    if uH != 1 and aH != 1
+        missing += 1
+        txt := txt + "⏳ RSI 1H بالای MA نیست\n"
+    if u5 != 1
+        missing += 1
+        txt := txt + (d5 == 1 ? "⏳ RSI 5m پولبک\n" : "⏳ RSI 5m کمان ندارد\n")
+    else if a5 != 1
+        missing += 1
+        txt := txt + "⏳ RSI 5m بالای MA نیست\n"
+    if u1 != 1
+        missing += 1
+        txt := txt + "⏳ RSI 1m کمان ندارد\n"
+    if not (nz(mh) >= 0) and mhR == 1
+        missing += 1
+        txt := txt + "⏳ MACD در حال سبز شدن\n"
+    if nz(av) >= adxMin and nz(av) < adxReady
+        missing += 1
+        txt := txt + "⏳ ADX بین آستانه\n"
+    if lt5 == 0
+        missing += 1
+        txt := txt + "⏳ LIQ 5m PIVOT ندارد\n"
+    if lt1 == 2
+        missing += 1
+        txt := txt + "⏳ LIQ 1m روی مقاومت\n"
+    else if lt1 == 0
+        missing += 1
+        txt := txt + "⏳ LIQ 1m PIVOT ندارد\n"
+    // فیلترهای V4
+    if useBtcFilter
+        if nz(btcDn5) == 1 or (nz(btcAb5) == 0 and nz(btcUp5) == 0 and nz(btcSt5) == 0)
+            hardF += 1
+            txt := txt + "⛔ BTC 5m نزولی - آلت ریسکی\n"
+        else if nz(btcAb5) == 0
+            missing += 1
+            txt := txt + "⏳ BTC 5m هنوز صعودی نشده\n"
+    if useVolFilter
+        if not na(vol) and not na(volMa) and volMa > 0
+            if vol < volMa * volThresh
+                missing += 1
+                txt := txt + "⏳ حجم 5m ضعیف (" + f_num(vol / volMa, "#.##") + "x < " + str.tostring(volThresh, "#.#") + "x)\n"
+            else
+                s += 0.5
+        else
+            missing += 1
+            txt := txt + "⏳ حجم دیتا ندارد\n"
+    if not na(r1) and r1 > overbought
+        hardF += 1
+        txt := txt + "⛔ RSI 1m Overbought " + f_num(r1, "#.#") + " > " + str.tostring(overbought, "#") + "\n"
+    if not na(space)
+        if space < spaceBlock
+            hardF += 1
+            txt := txt + "⛔ SPACE " + f_num(space, "#.##") + "% < " + str.tostring(spaceBlock, "#.#") + "% چسبیده به مقاومت\n"
+            s -= 1.5
+        else if space < spaceWarn
+            missing += 1
+            txt := txt + "⏳ SPACE " + f_num(space, "#.##") + "% کم (<" + str.tostring(spaceWarn, "#.#") + "%)\n"
+            s -= 0.75
+    s := math.max(0, math.min(10, s))
+    int level = nz(av) < adxMin ? 0 : hardF > 0 ? (s >= 6.5 ? 2 : 0) : (missing > 0 ? 2 : 1)
+    [s, level, txt, missing + hardF]
+
+// ───────── SPACE CALC ─────────
+cSpace = f_space(cLiq5resD, cLiq1resD)
+wSpace1 = f_space(w5ResD_1, w1ResD_1)
+wSpace2 = f_space(w5ResD_2, w1ResD_2)
+wSpace3 = f_space(w5ResD_3, w1ResD_3)
+wSpace4 = f_space(w5ResD_4, w1ResD_4)
+wSpace5 = f_space(w5ResD_5, w1ResD_5)
+wSpace6 = f_space(w5ResD_6, w1ResD_6)
+
+// ───────── DECISIONS ─────────
+[cScore, cLevel, cWhy, cWhyN] = f_decide(math.max(nz(cUp1h), nz(cSt1h)), nz(cDn1h), nz(cAb1h), math.max(nz(cUp5), nz(cSt5)), nz(cDn5), nz(cAb5), math.max(nz(cUp1), nz(cSt1)), cMh, nz(cMhR), cAv, nz(cLiq5t), nz(cLiq1t), cR1, cVol5, cVolMa5, cSpace)
+[sScore1, sLevel1, sWhy1, sWhyN1] = f_decide(math.max(nz(w1hUp_1), nz(w1hSt_1)), nz(w1hDn_1), nz(w1hAb_1), math.max(nz(w5Up_1), nz(w5St_1)), nz(w5Dn_1), nz(w5Ab_1), math.max(nz(w1Up_1), nz(w1St_1)), w5Mh_1, nz(w5MhR_1), w5Av_1, nz(w5Lt_1), nz(w1Lt_1), w1R_1, w5Vol_1, w5VolMa_1, wSpace1)
+[sScore2, sLevel2, sWhy2, sWhyN2] = f_decide(math.max(nz(w1hUp_2), nz(w1hSt_2)), nz(w1hDn_2), nz(w1hAb_2), math.max(nz(w5Up_2), nz(w5St_2)), nz(w5Dn_2), nz(w5Ab_2), math.max(nz(w1Up_2), nz(w1St_2)), w5Mh_2, nz(w5MhR_2), w5Av_2, nz(w5Lt_2), nz(w1Lt_2), w1R_2, w5Vol_2, w5VolMa_2, wSpace2)
+[sScore3, sLevel3, sWhy3, sWhyN3] = f_decide(math.max(nz(w1hUp_3), nz(w1hSt_3)), nz(w1hDn_3), nz(w1hAb_3), math.max(nz(w5Up_3), nz(w5St_3)), nz(w5Dn_3), nz(w5Ab_3), math.max(nz(w1Up_3), nz(w1St_3)), w5Mh_3, nz(w5MhR_3), w5Av_3, nz(w5Lt_3), nz(w1Lt_3), w1R_3, w5Vol_3, w5VolMa_3, wSpace3)
+[sScore4, sLevel4, sWhy4, sWhyN4] = f_decide(math.max(nz(w1hUp_4), nz(w1hSt_4)), nz(w1hDn_4), nz(w1hAb_4), math.max(nz(w5Up_4), nz(w5St_4)), nz(w5Dn_4), nz(w5Ab_4), math.max(nz(w1Up_4), nz(w1St_4)), w5Mh_4, nz(w5MhR_4), w5Av_4, nz(w5Lt_4), nz(w1Lt_4), w1R_4, w5Vol_4, w5VolMa_4, wSpace4)
+[sScore5, sLevel5, sWhy5, sWhyN5] = f_decide(math.max(nz(w1hUp_5), nz(w1hSt_5)), nz(w1hDn_5), nz(w1hAb_5), math.max(nz(w5Up_5), nz(w5St_5)), nz(w5Dn_5), nz(w5Ab_5), math.max(nz(w1Up_5), nz(w1St_5)), w5Mh_5, nz(w5MhR_5), w5Av_5, nz(w5Lt_5), nz(w1Lt_5), w1R_5, w5Vol_5, w5VolMa_5, wSpace5)
+[sScore6, sLevel6, sWhy6, sWhyN6] = f_decide(math.max(nz(w1hUp_6), nz(w1hSt_6)), nz(w1hDn_6), nz(w1hAb_6), math.max(nz(w5Up_6), nz(w5St_6)), nz(w5Dn_6), nz(w5Ab_6), math.max(nz(w1Up_6), nz(w1St_6)), w5Mh_6, nz(w5MhR_6), w5Av_6, nz(w5Lt_6), nz(w1Lt_6), w1R_6, w5Vol_6, w5VolMa_6, wSpace6)
+
+// ───────── EXIT LOGIC ─────────
+cExit = useExit and (nz(cDn1) == 1 or (nz(cMh) < 0 and nz(cMhR) == 0) or nz(cLiq1t) == 2 or nz(cR1) > overbought)
+cExitTxt = ""
+cExitTxt := cExitTxt + (nz(cDn1) == 1 ? "RSI 1m DOWN " : "")
+cExitTxt := cExitTxt + (nz(cMh) < 0 and nz(cMhR) == 0 ? "MACD برگشت " : "")
+cExitTxt := cExitTxt + (nz(cLiq1t) == 2 ? "LIQ 1m RES " : "")
+cExitTxt := cExitTxt + (nz(cR1) > overbought ? "Overbought " : "")
+cExitTxt := cExitTxt == "" ? "—" : cExitTxt
+
+// TP/SL
+longSpace = cSpace
+spaceTxt = na(longSpace) ? "— باز" : longSpace < 0.30 ? "🔴 خیلی نزدیک" : longSpace < 0.75 ? "🟠 نزدیک" : longSpace < 1.50 ? "🟡 متوسط" : "🟢 خوب"
+
+liq5Latest = nz(cLiq5t) == 1 ? f_liqTxt(1, cLiq5sup, cLiq5supD) : nz(cLiq5t) == 2 ? f_liqTxt(2, cLiq5res, cLiq5resD) : "— نیست"
+liq5Other = nz(cLiq5t) == 1 ? (na(cLiq5res) ? "—" : "مقاومت: " + f_num(cLiq5res, format.mintick)) : nz(cLiq5t) == 2 ? (na(cLiq5sup) ? "—" : "حمایت: " + f_num(cLiq5sup, format.mintick)) : "—"
+liq1Latest = nz(cLiq1t) == 1 ? f_liqTxt(1, cLiq1sup, cLiq1supD) : nz(cLiq1t) == 2 ? f_liqTxt(2, cLiq1res, cLiq1resD) : "— نیست"
+liq1Other = nz(cLiq1t) == 1 ? (na(cLiq1res) ? "—" : "مقاومت: " + f_num(cLiq1res, format.mintick)) : nz(cLiq1t) == 2 ? (na(cLiq1sup) ? "—" : "حمایت: " + f_num(cLiq1sup, format.mintick)) : "—"
+
+btcTxt = "RSI " + f_num(btcR5, "#.#") + " | MA " + f_num(btcMa5, "#.#")
+btcState = nz(btcUp5) == 1 or nz(btcSt5) == 1 ? "🟢 صعودی" : nz(btcDn5) == 1 ? "🔴 نزولی" : "🟠 رنج"
+btcColor = nz(btcUp5) == 1 or nz(btcSt5) == 1 ? color.rgb(0,90,0) : nz(btcDn5) == 1 ? color.rgb(90,20,25) : color.black
+
+volRatio = not na(cVol5) and not na(cVolMa5) and cVolMa5 > 0 ? cVol5 / cVolMa5 : na
+volTxt = na(volRatio) ? "—" : f_num(volRatio, "#.##") + "x" + " (" + f_num(cVol5, "#.#") + " / " + f_num(cVolMa5, "#.#") + ")"
+volState = na(volRatio) ? "—" : volRatio >= volThresh ? "🟢 قوی" : volRatio >= 1.0 ? "🟡 متوسط" : "🔴 ضعیف"
+
+tpLevel = not na(cLiq5res) ? cLiq5res : cLiq1res
+tpDist = not na(cLiq5resD) ? cLiq5resD : cLiq1resD
+slLevel = not na(cLiq1sup) ? cLiq1sup : cLiq5sup
+slDist = not na(cLiq1supD) ? cLiq1supD : cLiq5supD
+rr = not na(tpDist) and not na(slDist) and slDist != 0 ? tpDist / slDist : na
+tpSlTxt = "SL " + f_num(slLevel, format.mintick) + " (" + f_num(slDist, "#.##") + "%) | TP " + f_num(tpLevel, format.mintick) + " (" + f_num(tpDist, "#.##") + "%) | RR 1:" + f_num(rr, "#.##")
+
+// ───────── TABLES ─────────
+var table tA = table.new(f_pos(posA), 4, 14, border_width=1, frame_width=1)
+var table tB = table.new(f_pos(posB), 11, 7, border_width=1, frame_width=1)
+
+if barstate.islast
+    ts = txtSize == "Small" ? size.small : size.tiny
+    bg = color.black
+    hd = color.rgb(25,25,25)
+    // Table A
+    table.cell(tA, 0, 0, "RO6TF V4 — ورود", bgcolor=hd, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 0, cSymName, bgcolor=hd, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 0, "نمره: " + f_num(cScore, "#.##") + " /10", bgcolor=hd, text_color=color.yellow, text_size=ts)
+    table.cell(tA, 3, 0, f_verdictTxt(cLevel, cWhyN), bgcolor=f_verdictBg(cLevel), text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 1, "RSI 1H", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 1, "RSI " + f_num(cR1h, "#.#") + " | MA " + f_num(cMa1h, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 1, f_rsiState(nz(cUp1h)==1, nz(cSt1h)==1, nz(cDn1h)==1), bgcolor=nz(cUp1h)==1 or nz(cSt1h)==1 ? color.rgb(0,90,0) : nz(cDn1h)==1 ? color.rgb(90,20,25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 1, nz(cAb1h)==1 ? "صورتی بالای زرد ✓" : "زیر زرد ✗", bgcolor=bg, text_color=nz(cAb1h)==1 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 2, "RSI 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 2, "RSI " + f_num(cR5, "#.#") + " | MA " + f_num(cMa5, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 2, f_rsiState(nz(cUp5)==1, nz(cSt5)==1, nz(cDn5)==1), bgcolor=nz(cUp5)==1 or nz(cSt5)==1 ? color.rgb(0,90,0) : nz(cDn5)==1 ? color.rgb(90,20,25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 2, nz(cAb5)==1 ? "صورتی بالای زرد ✓" : "زیر زرد ✗", bgcolor=bg, text_color=nz(cAb5)==1 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 3, "RSI 1m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 3, "RSI " + f_num(cR1, "#.#") + " | MA " + f_num(cMa1, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 3, f_rsiState(nz(cUp1)==1, nz(cSt1)==1, nz(cDn1)==1), bgcolor=nz(cUp1)==1 or nz(cSt1)==1 ? color.rgb(0,90,0) : nz(cDn1)==1 ? color.rgb(90,20,25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 3, nz(cAb1)==1 ? "صورتی بالای زرد ✓" : "زیر زرد ✗" + (nz(cR1)>overbought ? " | Overbought!" : ""), bgcolor=bg, text_color=nz(cR1)>overbought ? color.red : nz(cAb1)==1 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 4, "MACD 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 4, "hist " + f_num(cMh, "#.####"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 4, nz(cMh)>=0 ? "🟢 سبز" : nz(cMhR)==1 ? "🔴↑ در حال بالا" : "🔴↓ ریزشی", bgcolor=nz(cMh)>=0 ? color.rgb(0,90,0) : color.rgb(90,20,25), text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 4, nz(cMh)>=0 ? "✓" : "✗", bgcolor=bg, text_color=nz(cMh)>=0 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 5, "ADX 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 5, f_num(cAv, "#.#") + " | +DI " + f_num(cPd, "#.#") + " −DI " + f_num(cMd, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 5, nz(cAv)>=adxReady ? "✓ بالای " + str.tostring(adxReady,"#") : nz(cAv)>=adxMin ? "⏳ بین آستانه" : "✗ زیر " + str.tostring(adxMin,"#"), bgcolor=bg, text_color=nz(cAv)>=adxReady ? color.green : nz(cAv)>=adxMin ? color.orange : color.red, text_size=ts)
+    table.cell(tA, 3, 5, "", bgcolor=bg, text_size=ts)
+
+    table.cell(tA, 0, 6, "LIQ 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 6, "آخرین: " + liq5Latest, bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 6, liq5Other, bgcolor=bg, text_color=color.silver, text_size=ts)
+    table.cell(tA, 3, 6, nz(cLiq5t)==1 ? "🟢" : nz(cLiq5t)==2 ? "🔴" : "—", bgcolor=bg, text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 7, "LIQ 1m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 7, "آخرین: " + liq1Latest, bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 7, liq1Other, bgcolor=bg, text_color=color.silver, text_size=ts)
+    table.cell(tA, 3, 7, nz(cLiq1t)==1 ? "🟢" : nz(cLiq1t)==2 ? "🔴" : "—", bgcolor=bg, text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 8, "SPACE", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 8, f_num(longSpace, "#.##") + "%", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 8, spaceTxt + (not na(longSpace) and longSpace < spaceBlock ? " | ورود ممنوع" : not na(longSpace) and longSpace < spaceWarn ? " | هشدار" : ""), bgcolor=bg, text_color=not na(longSpace) and longSpace < spaceBlock ? color.red : not na(longSpace) and longSpace < spaceWarn ? color.orange : color.silver, text_size=ts)
+    table.cell(tA, 3, 8, "", bgcolor=bg, text_size=ts)
+
+    table.cell(tA, 0, 9, "BTC 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 9, btcTxt, bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 9, btcState, bgcolor=btcColor, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 9, useBtcFilter ? (nz(btcDn5)==1 ? "❌ فیلتر" : "✅") : "خاموش", bgcolor=bg, text_color=nz(btcDn5)==1 ? color.red : color.green, text_size=ts)
+
+    table.cell(tA, 0, 10, "VOL 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 10, volTxt, bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 10, volState, bgcolor=na(volRatio) ? bg : volRatio >= volThresh ? color.rgb(0,90,0) : volRatio >= 1.0 ? color.rgb(90,70,0) : color.rgb(90,20,25), text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 10, useVolFilter ? (na(volRatio) or volRatio < volThresh ? "⏳ صبر" : "✅") : "خاموش", bgcolor=bg, text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 11, "EXIT", bgcolor=cExit ? color.rgb(90,20,25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 11, cExit ? "⚠️ خروج: " + cExitTxt : "— پوزیشن امن", bgcolor=cExit ? color.rgb(90,20,25) : bg, text_color=cExit ? color.red : color.green, text_size=ts)
+    table.cell(tA, 2, 11, cExit ? "ببند / سیو سود" : "نگه دار", bgcolor=cExit ? color.rgb(90,20,25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 11, cExit ? "🔴" : "🟢", bgcolor=bg, text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 12, "TP/SL", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 12, tpSlTxt, bgcolor=color.rgb(15,15,35), text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 12, na(rr) ? "" : rr >= 2 ? "🟢 RR خوب" : rr >= 1 ? "🟡 RR متوسط" : "🔴 RR ضعیف", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 12, "", bgcolor=bg, text_size=ts)
+
+    table.cell(tA, 0, 13, "📋 دلایل", bgcolor=hd, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 13, cWhy == "" ? "✅ همه سبز" : cWhy, bgcolor=color.rgb(15,15,15), text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 13, "", bgcolor=color.rgb(15,15,15), text_size=ts)
+    table.cell(tA, 3, 13, "", bgcolor=color.rgb(15,15,15), text_size=ts)
+
+    // Table B
+    table.clear(tB, 0, 0, 10, 6)
+    if showWatch
+        table.cell(tB, 0, 0, "#", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 0, "نماد", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 0, "نمره", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 3, 0, "RSI 1H", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 0, "RSI 5m", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 0, "RSI 1m", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 0, "MACD", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 0, "ADX", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 8, 0, "LIQ 5/1", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 0, "VOL", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 10, 0, "تصمیم", bgcolor=hd, text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 1, "1", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 1, sym1, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 1, f_num(sScore1, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel1), text_size=ts)
+        table.cell(tB, 3, 1, f_dot(nz(w1hUp_1)==1 or nz(w1hSt_1)==1, nz(w1hDn_1)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 1, f_dot(nz(w5Up_1)==1 or nz(w5St_1)==1, nz(w5Dn_1)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 1, f_dot(nz(w1Up_1)==1 or nz(w1St_1)==1, nz(w1Dn_1)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 1, nz(w5Mh_1)>=0 ? "🟢" : nz(w5MhR_1)==1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 1, f_num(w5Av_1, "#.#"), bgcolor=bg, text_color=nz(w5Av_1)>=adxReady ? color.green : nz(w5Av_1)>=adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 1, (nz(w5Lt_1)==1 ? "🟢" : nz(w5Lt_1)==2 ? "🔴" : "—") + (nz(w1Lt_1)==1 ? "🟢" : nz(w1Lt_1)==2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 1, not na(w5Vol_1) and not na(w5VolMa_1) and w5VolMa_1>0 ? f_num(w5Vol_1/w5VolMa_1, "#.#")+"x" : "—", bgcolor=bg, text_color=not na(w5Vol_1) and not na(w5VolMa_1) and w5VolMa_1>0 and w5Vol_1/w5VolMa_1>=volThresh ? color.green : color.orange, text_size=ts)
+        table.cell(tB, 10, 1, sLevel1==1 ? "✅ ورود" : sLevel1==2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel1), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 2, "2", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 2, sym2, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 2, f_num(sScore2, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel2), text_size=ts)
+        table.cell(tB, 3, 2, f_dot(nz(w1hUp_2)==1 or nz(w1hSt_2)==1, nz(w1hDn_2)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 2, f_dot(nz(w5Up_2)==1 or nz(w5St_2)==1, nz(w5Dn_2)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 2, f_dot(nz(w1Up_2)==1 or nz(w1St_2)==1, nz(w1Dn_2)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 2, nz(w5Mh_2)>=0 ? "🟢" : nz(w5MhR_2)==1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 2, f_num(w5Av_2, "#.#"), bgcolor=bg, text_color=nz(w5Av_2)>=adxReady ? color.green : nz(w5Av_2)>=adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 2, (nz(w5Lt_2)==1 ? "🟢" : nz(w5Lt_2)==2 ? "🔴" : "—") + (nz(w1Lt_2)==1 ? "🟢" : nz(w1Lt_2)==2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 2, not na(w5Vol_2) and not na(w5VolMa_2) and w5VolMa_2>0 ? f_num(w5Vol_2/w5VolMa_2, "#.#")+"x" : "—", bgcolor=bg, text_color=not na(w5Vol_2) and not na(w5VolMa_2) and w5VolMa_2>0 and w5Vol_2/w5VolMa_2>=volThresh ? color.green : color.orange, text_size=ts)
+        table.cell(tB, 10, 2, sLevel2==1 ? "✅ ورود" : sLevel2==2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel2), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 3, "3", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 3, sym3, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 3, f_num(sScore3, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel3), text_size=ts)
+        table.cell(tB, 3, 3, f_dot(nz(w1hUp_3)==1 or nz(w1hSt_3)==1, nz(w1hDn_3)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 3, f_dot(nz(w5Up_3)==1 or nz(w5St_3)==1, nz(w5Dn_3)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 3, f_dot(nz(w1Up_3)==1 or nz(w1St_3)==1, nz(w1Dn_3)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 3, nz(w5Mh_3)>=0 ? "🟢" : nz(w5MhR_3)==1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 3, f_num(w5Av_3, "#.#"), bgcolor=bg, text_color=nz(w5Av_3)>=adxReady ? color.green : nz(w5Av_3)>=adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 3, (nz(w5Lt_3)==1 ? "🟢" : nz(w5Lt_3)==2 ? "🔴" : "—") + (nz(w1Lt_3)==1 ? "🟢" : nz(w1Lt_3)==2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 3, not na(w5Vol_3) and not na(w5VolMa_3) and w5VolMa_3>0 ? f_num(w5Vol_3/w5VolMa_3, "#.#")+"x" : "—", bgcolor=bg, text_color=not na(w5Vol_3) and not na(w5VolMa_3) and w5VolMa_3>0 and w5Vol_3/w5VolMa_3>=volThresh ? color.green : color.orange, text_size=ts)
+        table.cell(tB, 10, 3, sLevel3==1 ? "✅ ورود" : sLevel3==2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel3), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 4, "4", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 4, sym4, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 4, f_num(sScore4, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel4), text_size=ts)
+        table.cell(tB, 3, 4, f_dot(nz(w1hUp_4)==1 or nz(w1hSt_4)==1, nz(w1hDn_4)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 4, f_dot(nz(w5Up_4)==1 or nz(w5St_4)==1, nz(w5Dn_4)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 4, f_dot(nz(w1Up_4)==1 or nz(w1St_4)==1, nz(w1Dn_4)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 4, nz(w5Mh_4)>=0 ? "🟢" : nz(w5MhR_4)==1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 4, f_num(w5Av_4, "#.#"), bgcolor=bg, text_color=nz(w5Av_4)>=adxReady ? color.green : nz(w5Av_4)>=adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 4, (nz(w5Lt_4)==1 ? "🟢" : nz(w5Lt_4)==2 ? "🔴" : "—") + (nz(w1Lt_4)==1 ? "🟢" : nz(w1Lt_4)==2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 4, not na(w5Vol_4) and not na(w5VolMa_4) and w5VolMa_4>0 ? f_num(w5Vol_4/w5VolMa_4, "#.#")+"x" : "—", bgcolor=bg, text_color=not na(w5Vol_4) and not na(w5VolMa_4) and w5VolMa_4>0 and w5Vol_4/w5VolMa_4>=volThresh ? color.green : color.orange, text_size=ts)
+        table.cell(tB, 10, 4, sLevel4==1 ? "✅ ورود" : sLevel4==2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel4), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 5, "5", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 5, sym5, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 5, f_num(sScore5, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel5), text_size=ts)
+        table.cell(tB, 3, 5, f_dot(nz(w1hUp_5)==1 or nz(w1hSt_5)==1, nz(w1hDn_5)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 5, f_dot(nz(w5Up_5)==1 or nz(w5St_5)==1, nz(w5Dn_5)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 5, f_dot(nz(w1Up_5)==1 or nz(w1St_5)==1, nz(w1Dn_5)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 5, nz(w5Mh_5)>=0 ? "🟢" : nz(w5MhR_5)==1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 5, f_num(w5Av_5, "#.#"), bgcolor=bg, text_color=nz(w5Av_5)>=adxReady ? color.green : nz(w5Av_5)>=adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 5, (nz(w5Lt_5)==1 ? "🟢" : nz(w5Lt_5)==2 ? "🔴" : "—") + (nz(w1Lt_5)==1 ? "🟢" : nz(w1Lt_5)==2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 5, not na(w5Vol_5) and not na(w5VolMa_5) and w5VolMa_5>0 ? f_num(w5Vol_5/w5VolMa_5, "#.#")+"x" : "—", bgcolor=bg, text_color=not na(w5Vol_5) and not na(w5VolMa_5) and w5VolMa_5>0 and w5Vol_5/w5VolMa_5>=volThresh ? color.green : color.orange, text_size=ts)
+        table.cell(tB, 10, 5, sLevel5==1 ? "✅ ورود" : sLevel5==2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel5), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 6, "6", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 6, sym6, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 6, f_num(sScore6, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel6), text_size=ts)
+        table.cell(tB, 3, 6, f_dot(nz(w1hUp_6)==1 or nz(w1hSt_6)==1, nz(w1hDn_6)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 6, f_dot(nz(w5Up_6)==1 or nz(w5St_6)==1, nz(w5Dn_6)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 6, f_dot(nz(w1Up_6)==1 or nz(w1St_6)==1, nz(w1Dn_6)==1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 6, nz(w5Mh_6)>=0 ? "🟢" : nz(w5MhR_6)==1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 6, f_num(w5Av_6, "#.#"), bgcolor=bg, text_color=nz(w5Av_6)>=adxReady ? color.green : nz(w5Av_6)>=adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 6, (nz(w5Lt_6)==1 ? "🟢" : nz(w5Lt_6)==2 ? "🔴" : "—") + (nz(w1Lt_6)==1 ? "🟢" : nz(w1Lt_6)==2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 6, not na(w5Vol_6) and not na(w5VolMa_6) and w5VolMa_6>0 ? f_num(w5Vol_6/w5VolMa_6, "#.#")+"x" : "—", bgcolor=bg, text_color=not na(w5Vol_6) and not na(w5VolMa_6) and w5VolMa_6>0 and w5Vol_6/w5VolMa_6>=volThresh ? color.green : color.orange, text_size=ts)
+        table.cell(tB, 10, 6, sLevel6==1 ? "✅ ورود" : sLevel6==2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel6), text_color=color.white, text_size=ts)
+
+// ───────── ALERTS ─────────
+goSig = cLevel == 1
+waitSig = cLevel == 2
+exitSig = cExit
+anyWatchGO = sLevel1 == 1 or sLevel2 == 1 or sLevel3 == 1 or sLevel4 == 1 or sLevel5 == 1 or sLevel6 == 1
+
+alertcondition(goSig, "V4 — ورود", "RO6TF V4: ورود - همه فیلترها سبز")
+alertcondition(waitSig, "V4 — صبر", "RO6TF V4: صبر - نزدیک ورود")
+alertcondition(exitSig, "V4 — خروج", "RO6TF V4: خروج اضطراری!")
+alertcondition(anyWatchGO, "V4 — Watchlist ورود", "RO6TF V4: واچ لیست ورود داده")

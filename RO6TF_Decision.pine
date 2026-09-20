@@ -1,0 +1,414 @@
+//@version=6
+// ════════════════════════════════════════════════════════════
+//  RO6TF — تصمیم ورود | نمره دهی + ورود / صبر / ناورود
+//  (نسخه TradingView از سامانه اسکنر RO6TF)
+//
+//  روش استفاده:
+//   1) روی هر چارتی (مثلاً 1m) برو
+//   2) Pine Editor را باز کن — اول Ctrl+A و Delete — سپس کل این کد را بچسبان
+//   3) Add to chart
+//   4) جدول تصمیم (پیش‌فرض بالا-راست) + جدول ۶ نماد (پایین-راست)
+//   5) برای داورای نماد دلخواه: ⚙️ → DECISION SYMBOL → مثال: AKEUSDT.P
+//      (خالی بگذاری، جدول بالا نماد همان چارت را می‌خواند)
+//
+//  نمره دهی (مجموع 10):
+//   RSI 1H کمان صعودی = 2 | RSI 5m = 2 | RSI 1m = 1
+//   MACD 5m سبز = 1.5 | ADX بالای 23 = 1.5 (زیر 20 = ناورود)
+//   LIQ 5m سبز = 1 | LIQ 1m سبز = 1
+// ════════════════════════════════════════════════════════════
+
+indicator("RO6TF Entry Decision — Score/10 (ورود یا ناورود)", "RO6TF Dec", overlay=true, dynamic_requests=true)
+
+// ─────────────────────────── INPUTS ───────────────────────────
+groupSym = "WATCHLIST — 6 SYMBOLS (جدول پایین)"
+sym1 = input.string("AKEUSDT.P", "Symbol 1", group=groupSym)
+sym2 = input.string("AVAUSDT.P", "Symbol 2", group=groupSym)
+sym3 = input.string("UAIUSDT.P", "Symbol 3", group=groupSym)
+sym4 = input.string("SUIUSDT.P", "Symbol 4", group=groupSym)
+sym5 = input.string("XRPUSDT.P", "Symbol 5", group=groupSym)
+sym6 = input.string("ADAUSDT.P", "Symbol 6", group=groupSym)
+showWatch = input.bool(true, "Show 6-symbol watchlist table", group=groupSym)
+
+groupMain = "DECISION SYMBOL — جدول بالا (نمادی که داوریش را می‌خواهی)"
+mainSym = input.string("", "نماد جدول بالا (خالی = نماد چارت). مثال: AKEUSDT.P", group=groupMain)
+
+groupAdx = "ADX THRESHOLDS"
+adxReady = input.float(23.0, "Entry needs ADX >= this", minval=1, step=0.5, group=groupAdx)
+adxMin = input.float(20.0, "Below this ADX = NO entry", minval=1, step=0.5, group=groupAdx)
+
+groupTbl = "TABLES"
+posA = input.string("Top-Right", "Decision table position", options=["Top-Right", "Top-Left", "Bottom-Right", "Bottom-Left"], group=groupTbl)
+posB = input.string("Bottom-Right", "Watchlist table position", options=["Top-Right", "Top-Left", "Bottom-Right", "Bottom-Left"], group=groupTbl)
+txtSize = input.string("Small", "Text size", options=["Small", "Tiny"], group=groupTbl)
+
+f_sym(string s) =>
+    str.startswith(s, "BINANCE:") ? s : "BINANCE:" + s
+
+cSym = mainSym == "" ? syminfo.tickerid : f_sym(mainSym)
+cSymName = mainSym == "" ? syminfo.ticker : mainSym
+
+f_pos(string p) =>
+    p == "Top-Left" ? position.top_left : p == "Bottom-Right" ? position.bottom_right : p == "Bottom-Left" ? position.bottom_left : position.top_right
+
+// ─────────────────── 1H PACK: RSI curve ───────────────────
+// flags are returned as int 0/1 (na-safe, never bool)
+f_w1h() =>
+    r = ta.rsi(close, 14)
+    ma = ta.sma(r, 14)
+    sl = ta.change(ma)
+    slp = ta.change(ma[1])
+    up = not na(ma[2]) and sl > 0 and sl > slp
+    st = not na(ma[2]) and sl > 0 and slp <= 0
+    dn = not na(sl) and sl < 0
+    ab = not na(r) and not na(ma) and r > ma
+    [r, ma, up ? 1 : 0, st ? 1 : 0, dn ? 1 : 0, ab ? 1 : 0]
+
+// ─────────── 5M PACK: RSI curve + MACD + ADX + LIQ ───────────
+f_w5() =>
+    var float support = na
+    var float resistance = na
+    var int latestType = 0
+    r = ta.rsi(close, 14)
+    ma = ta.sma(r, 14)
+    sl = ta.change(ma)
+    slp = ta.change(ma[1])
+    up = not na(ma[2]) and sl > 0 and sl > slp
+    st = not na(ma[2]) and sl > 0 and slp <= 0
+    dn = not na(sl) and sl < 0
+    ab = not na(r) and not na(ma) and r > ma
+    mline = ta.ema(close, 12) - ta.ema(close, 26)
+    msig = ta.ema(mline, 9)
+    mh = mline - msig
+    mhR = nz(mh) > nz(mh[1])
+    [pd, md, av] = ta.dmi(14, 14)
+    pl = ta.pivotlow(low, 5, 2)
+    ph = ta.pivothigh(high, 5, 2)
+    if not na(pl)
+        support := pl
+        latestType := 1
+    if not na(ph)
+        resistance := ph
+        latestType := 2
+    if not na(support) and low < support
+        support := na
+    if not na(resistance) and high > resistance
+        resistance := na
+    supAct = not na(support) and support < close
+    resAct = not na(resistance) and resistance > close
+    if latestType == 1 and not supAct
+        latestType := resAct ? 2 : 0
+    else if latestType == 2 and not resAct
+        latestType := supAct ? 1 : 0
+    else if latestType == 0
+        latestType := supAct ? 1 : resAct ? 2 : 0
+    supD = supAct and close != 0 ? 100.0 * (close - support) / close : na
+    resD = resAct and close != 0 ? 100.0 * (resistance - close) / close : na
+    [r, ma, up ? 1 : 0, st ? 1 : 0, dn ? 1 : 0, ab ? 1 : 0, mh, mhR ? 1 : 0, av, pd, md, latestType, supAct ? support : na, supD, resAct ? resistance : na, resD]
+
+// ─────────── 1M PACK: RSI curve + LIQ ───────────
+f_w1() =>
+    var float support = na
+    var float resistance = na
+    var int latestType = 0
+    r = ta.rsi(close, 14)
+    ma = ta.sma(r, 14)
+    sl = ta.change(ma)
+    slp = ta.change(ma[1])
+    up = not na(ma[2]) and sl > 0 and sl > slp
+    st = not na(ma[2]) and sl > 0 and slp <= 0
+    dn = not na(sl) and sl < 0
+    ab = not na(r) and not na(ma) and r > ma
+    pl = ta.pivotlow(low, 5, 2)
+    ph = ta.pivothigh(high, 5, 2)
+    if not na(pl)
+        support := pl
+        latestType := 1
+    if not na(ph)
+        resistance := ph
+        latestType := 2
+    if not na(support) and low < support
+        support := na
+    if not na(resistance) and high > resistance
+        resistance := na
+    supAct = not na(support) and support < close
+    resAct = not na(resistance) and resistance > close
+    if latestType == 1 and not supAct
+        latestType := resAct ? 2 : 0
+    else if latestType == 2 and not resAct
+        latestType := supAct ? 1 : 0
+    else if latestType == 0
+        latestType := supAct ? 1 : resAct ? 2 : 0
+    supD = supAct and close != 0 ? 100.0 * (close - support) / close : na
+    resD = resAct and close != 0 ? 100.0 * (resistance - close) / close : na
+    [r, ma, up ? 1 : 0, st ? 1 : 0, dn ? 1 : 0, ab ? 1 : 0, latestType, supAct ? support : na, supD, resAct ? resistance : na, resD]
+
+// ─────────────────── CHART SYMBOL REQUESTS ───────────────────
+[cR1h, cMa1h, cUp1h, cSt1h, cDn1h, cAb1h] = request.security(cSym, "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[cR5, cMa5, cUp5, cSt5, cDn5, cAb5, cMh, cMhR, cAv, cPd, cMd, cLiq5t, cLiq5sup, cLiq5supD, cLiq5res, cLiq5resD] = request.security(cSym, "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+[cR1, cMa1, cUp1, cSt1, cDn1, cAb1, cLiq1t, cLiq1sup, cLiq1supD, cLiq1res, cLiq1resD] = request.security(cSym, "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+
+// ─────────────────── WATCHLIST REQUESTS ───────────────────
+[w1hR_1, w1hMa_1, w1hUp_1, w1hSt_1, w1hDn_1, w1hAb_1] = request.security(f_sym(sym1), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_1, w5Ma_1, w5Up_1, w5St_1, w5Dn_1, w5Ab_1, w5Mh_1, w5MhR_1, w5Av_1, w5Pd_1, w5Md_1, w5Lt_1, w5Sup_1, w5SupD_1, w5Res_1, w5ResD_1] = request.security(f_sym(sym1), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_1, w1Ma_1, w1Up_1, w1St_1, w1Dn_1, w1Ab_1, w1Lt_1, w1Sup_1, w1SupD_1, w1Res_1, w1ResD_1] = request.security(f_sym(sym1), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_2, w1hMa_2, w1hUp_2, w1hSt_2, w1hDn_2, w1hAb_2] = request.security(f_sym(sym2), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_2, w5Ma_2, w5Up_2, w5St_2, w5Dn_2, w5Ab_2, w5Mh_2, w5MhR_2, w5Av_2, w5Pd_2, w5Md_2, w5Lt_2, w5Sup_2, w5SupD_2, w5Res_2, w5ResD_2] = request.security(f_sym(sym2), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_2, w1Ma_2, w1Up_2, w1St_2, w1Dn_2, w1Ab_2, w1Lt_2, w1Sup_2, w1SupD_2, w1Res_2, w1ResD_2] = request.security(f_sym(sym2), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_3, w1hMa_3, w1hUp_3, w1hSt_3, w1hDn_3, w1hAb_3] = request.security(f_sym(sym3), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_3, w5Ma_3, w5Up_3, w5St_3, w5Dn_3, w5Ab_3, w5Mh_3, w5MhR_3, w5Av_3, w5Pd_3, w5Md_3, w5Lt_3, w5Sup_3, w5SupD_3, w5Res_3, w5ResD_3] = request.security(f_sym(sym3), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_3, w1Ma_3, w1Up_3, w1St_3, w1Dn_3, w1Ab_3, w1Lt_3, w1Sup_3, w1SupD_3, w1Res_3, w1ResD_3] = request.security(f_sym(sym3), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_4, w1hMa_4, w1hUp_4, w1hSt_4, w1hDn_4, w1hAb_4] = request.security(f_sym(sym4), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_4, w5Ma_4, w5Up_4, w5St_4, w5Dn_4, w5Ab_4, w5Mh_4, w5MhR_4, w5Av_4, w5Pd_4, w5Md_4, w5Lt_4, w5Sup_4, w5SupD_4, w5Res_4, w5ResD_4] = request.security(f_sym(sym4), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_4, w1Ma_4, w1Up_4, w1St_4, w1Dn_4, w1Ab_4, w1Lt_4, w1Sup_4, w1SupD_4, w1Res_4, w1ResD_4] = request.security(f_sym(sym4), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_5, w1hMa_5, w1hUp_5, w1hSt_5, w1hDn_5, w1hAb_5] = request.security(f_sym(sym5), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_5, w5Ma_5, w5Up_5, w5St_5, w5Dn_5, w5Ab_5, w5Mh_5, w5MhR_5, w5Av_5, w5Pd_5, w5Md_5, w5Lt_5, w5Sup_5, w5SupD_5, w5Res_5, w5ResD_5] = request.security(f_sym(sym5), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_5, w1Ma_5, w1Up_5, w1St_5, w1Dn_5, w1Ab_5, w1Lt_5, w1Sup_5, w1SupD_5, w1Res_5, w1ResD_5] = request.security(f_sym(sym5), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[w1hR_6, w1hMa_6, w1hUp_6, w1hSt_6, w1hDn_6, w1hAb_6] = request.security(f_sym(sym6), "60", f_w1h(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w5R_6, w5Ma_6, w5Up_6, w5St_6, w5Dn_6, w5Ab_6, w5Mh_6, w5MhR_6, w5Av_6, w5Pd_6, w5Md_6, w5Lt_6, w5Sup_6, w5SupD_6, w5Res_6, w5ResD_6] = request.security(f_sym(sym6), "5", f_w5(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[w1R_6, w1Ma_6, w1Up_6, w1St_6, w1Dn_6, w1Ab_6, w1Lt_6, w1Sup_6, w1SupD_6, w1Res_6, w1ResD_6] = request.security(f_sym(sym6), "1", f_w1(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+// ─────────────────── DECISION ENGINE ───────────────────
+// all flag args are int 0/1 — returns [score, level, why, whyCount]
+// level: 1 = GO | 2 = WAIT | 0 = NO
+f_decide(int uH, int dH, int aH, int u5, int d5, int a5, int u1, float mh, int mhR, float av, int lt5, int lt1) =>
+    float s = (uH == 1 ? 2.0 : 0.0) + (u5 == 1 ? 2.0 : 0.0) + (u1 == 1 ? 1.0 : 0.0) + (nz(mh) >= 0 ? 1.5 : 0.0) + (nz(av) >= adxReady ? 1.5 : nz(av) >= adxMin ? 0.75 : 0.0) + (lt5 == 1 ? 1.0 : 0.0) + (lt1 == 1 ? 1.0 : 0.0)
+    int hardF = 0
+    int missing = 0
+    string txt = ""
+    if dH == 1
+        hardF += 1
+        txt := txt + "⛔ کمان RSI ۱H رو به پایین است\n"
+    if not (nz(mh) >= 0) and mhR != 1
+        hardF += 1
+        txt := txt + "⛔ MACD ۵m سرخ و رو به پایین است\n"
+    if nz(av) < adxMin
+        hardF += 1
+        txt := txt + "⛔ ADX زیر " + str.tostring(adxMin, "#") + " — روند ضعیف، ورود ممنوع\n"
+    if lt5 == 2
+        hardF += 1
+        txt := txt + "⛔ LIQ ۵m روی مقاومت (PIVOT سرخ) است\n"
+    if uH != 1 and dH != 1
+        missing += 1
+        txt := txt + "⏳ RSI ۱H هنوز کمان صعودی ندارد\n"
+    if uH != 1 and aH != 1
+        missing += 1
+        txt := txt + "⏳ RSI ۱H هنوز بالای MA سیخ نشده\n"
+    if u5 != 1
+        missing += 1
+        txt := txt + (d5 == 1 ? "⏳ RSI ۵m رو به پایین است (پولبک کوتاه‌مدت)\n" : "⏳ RSI ۵m هنوز کمان صعودی ندارد\n")
+    else if a5 != 1
+        missing += 1
+        txt := txt + "⏳ RSI ۵m هنوز بالای MA سیخ نشده\n"
+    if u1 != 1
+        missing += 1
+        txt := txt + "⏳ RSI ۱m هنوز کمان صعودی ندارد\n"
+    if not (nz(mh) >= 0) and mhR == 1
+        missing += 1
+        txt := txt + "⏳ MACD هنوز سبز نیست (در حال بالا آمدن است)\n"
+    if nz(av) >= adxMin and nz(av) < adxReady
+        missing += 1
+        txt := txt + "⏳ ADX بین " + str.tostring(adxMin, "#") + " تا " + str.tostring(adxReady, "#") + " است\n"
+    if lt5 == 0
+        missing += 1
+        txt := txt + "⏳ LIQ ۵m PIVOT حمایتی فعال ندارد\n"
+    if lt1 == 2
+        missing += 1
+        txt := txt + "⏳ LIQ ۱m روی مقاومت است\n"
+    else if lt1 == 0
+        missing += 1
+        txt := txt + "⏳ LIQ ۱m PIVOT حمایتی فعال ندارد\n"
+    int level = nz(av) < adxMin ? 0 : hardF > 0 ? (s >= 6.5 ? 2 : 0) : (missing > 0 ? 2 : 1)
+    [s, level, txt, missing + hardF]
+
+[cScore, cLevel, cWhy, cWhyN] = f_decide(math.max(nz(cUp1h), nz(cSt1h)), nz(cDn1h), nz(cAb1h), math.max(nz(cUp5), nz(cSt5)), nz(cDn5), nz(cAb5), math.max(nz(cUp1), nz(cSt1)), cMh, nz(cMhR), cAv, nz(cLiq5t), nz(cLiq1t))
+[sScore1, sLevel1, sWhy1, sWhyN1] = f_decide(math.max(nz(w1hUp_1), nz(w1hSt_1)), nz(w1hDn_1), nz(w1hAb_1), math.max(nz(w5Up_1), nz(w5St_1)), nz(w5Dn_1), nz(w5Ab_1), math.max(nz(w1Up_1), nz(w1St_1)), w5Mh_1, nz(w5MhR_1), w5Av_1, nz(w5Lt_1), nz(w1Lt_1))
+[sScore2, sLevel2, sWhy2, sWhyN2] = f_decide(math.max(nz(w1hUp_2), nz(w1hSt_2)), nz(w1hDn_2), nz(w1hAb_2), math.max(nz(w5Up_2), nz(w5St_2)), nz(w5Dn_2), nz(w5Ab_2), math.max(nz(w1Up_2), nz(w1St_2)), w5Mh_2, nz(w5MhR_2), w5Av_2, nz(w5Lt_2), nz(w1Lt_2))
+[sScore3, sLevel3, sWhy3, sWhyN3] = f_decide(math.max(nz(w1hUp_3), nz(w1hSt_3)), nz(w1hDn_3), nz(w1hAb_3), math.max(nz(w5Up_3), nz(w5St_3)), nz(w5Dn_3), nz(w5Ab_3), math.max(nz(w1Up_3), nz(w1St_3)), w5Mh_3, nz(w5MhR_3), w5Av_3, nz(w5Lt_3), nz(w1Lt_3))
+[sScore4, sLevel4, sWhy4, sWhyN4] = f_decide(math.max(nz(w1hUp_4), nz(w1hSt_4)), nz(w1hDn_4), nz(w1hAb_4), math.max(nz(w5Up_4), nz(w5St_4)), nz(w5Dn_4), nz(w5Ab_4), math.max(nz(w1Up_4), nz(w1St_4)), w5Mh_4, nz(w5MhR_4), w5Av_4, nz(w5Lt_4), nz(w1Lt_4))
+[sScore5, sLevel5, sWhy5, sWhyN5] = f_decide(math.max(nz(w1hUp_5), nz(w1hSt_5)), nz(w1hDn_5), nz(w1hAb_5), math.max(nz(w5Up_5), nz(w5St_5)), nz(w5Dn_5), nz(w5Ab_5), math.max(nz(w1Up_5), nz(w1St_5)), w5Mh_5, nz(w5MhR_5), w5Av_5, nz(w5Lt_5), nz(w1Lt_5))
+[sScore6, sLevel6, sWhy6, sWhyN6] = f_decide(math.max(nz(w1hUp_6), nz(w1hSt_6)), nz(w1hDn_6), nz(w1hAb_6), math.max(nz(w5Up_6), nz(w5St_6)), nz(w5Dn_6), nz(w5Ab_6), math.max(nz(w1Up_6), nz(w1St_6)), w5Mh_6, nz(w5MhR_6), w5Av_6, nz(w5Lt_6), nz(w1Lt_6))
+
+// ─────────────────── TEXT HELPERS ───────────────────
+f_num(float x, string fmt) =>
+    na(x) ? "—" : str.tostring(x, fmt)
+
+f_rsiState(bool up, bool st, bool dn) =>
+    up ? "🟢 CURVE ↑" : st ? "🟢 START ↑" : dn ? "🔴 DOWN ↓" : "— نیست"
+
+f_dot(bool u, bool d) =>
+    u ? "🟢" : d ? "🔴" : "🟠"
+
+f_liqTxt(int t, float lvl, float dist) =>
+    t == 1 ? "🟢 SUP " + f_num(lvl, format.mintick) + " (" + f_num(dist, "#.##") + "%)" : t == 2 ? "🔴 RES " + f_num(lvl, format.mintick) + " (" + f_num(dist, "#.##") + "%)" : "— PIVOT فعال نیست"
+
+f_verdictTxt(int lv, int n) =>
+    lv == 1 ? "✅ ورود — همه فیلترها سبز" : lv == 2 ? "⏳ صبر — " + str.tostring(n) + " مورد باقی مانده" : "❌ ناورود — شرایط ورود نیست"
+
+f_verdictBg(int lv) =>
+    lv == 1 ? color.rgb(22, 90, 40) : lv == 2 ? color.rgb(110, 75, 15) : color.rgb(75, 25, 30)
+
+f_scoreColor(int lv) =>
+    lv == 1 ? color.lime : lv == 2 ? color.orange : color.red
+
+// ─────────────────── LONG SPACE ───────────────────
+longSpace = na(cLiq5resD) and na(cLiq1resD) ? na : na(cLiq5resD) ? cLiq1resD : na(cLiq1resD) ? cLiq5resD : math.min(cLiq5resD, cLiq1resD)
+spaceTxt = na(longSpace) ? "— مقاومت فعالی نیست (فضای باز)" : longSpace < 0.30 ? "🔴 خیلی نزدیک" : longSpace < 0.75 ? "🟠 نزدیک" : longSpace < 1.50 ? "🟡 متوسط" : "🟢 خوب"
+
+liq5Latest = nz(cLiq5t) == 1 ? f_liqTxt(1, cLiq5sup, cLiq5supD) : nz(cLiq5t) == 2 ? f_liqTxt(2, cLiq5res, cLiq5resD) : "— PIVOT فعال نیست"
+liq5Other = nz(cLiq5t) == 1 ? (na(cLiq5res) ? "—" : "مقاومت: " + f_num(cLiq5res, format.mintick)) : nz(cLiq5t) == 2 ? (na(cLiq5sup) ? "—" : "حمایت: " + f_num(cLiq5sup, format.mintick)) : "—"
+liq1Latest = nz(cLiq1t) == 1 ? f_liqTxt(1, cLiq1sup, cLiq1supD) : nz(cLiq1t) == 2 ? f_liqTxt(2, cLiq1res, cLiq1resD) : "— PIVOT فعال نیست"
+liq1Other = nz(cLiq1t) == 1 ? (na(cLiq1res) ? "—" : "مقاومت: " + f_num(cLiq1res, format.mintick)) : nz(cLiq1t) == 2 ? (na(cLiq1sup) ? "—" : "حمایت: " + f_num(cLiq1sup, format.mintick)) : "—"
+
+// ─────────────────── TABLES ───────────────────
+var table tA = table.new(f_pos(posA), 4, 10, border_width=1, frame_width=1)
+var table tB = table.new(f_pos(posB), 10, 7, border_width=1, frame_width=1)
+
+if barstate.islast
+    ts = txtSize == "Small" ? size.small : size.tiny
+    bg = color.black
+    hd = color.rgb(25, 25, 25)
+
+    // ── Table A: decision for the chart symbol ──
+    table.cell(tA, 0, 0, "RO6TF — تصمیم ورود", bgcolor=hd, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 0, cSymName, bgcolor=hd, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 0, "نمره: " + f_num(cScore, "#.##") + " / 10", bgcolor=hd, text_color=color.yellow, text_size=ts)
+    table.cell(tA, 3, 0, f_verdictTxt(cLevel, cWhyN), bgcolor=f_verdictBg(cLevel), text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 1, "RSI 1H", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 1, "RSI " + f_num(cR1h, "#.#") + " | MA " + f_num(cMa1h, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 1, f_rsiState(nz(cUp1h) == 1, nz(cSt1h) == 1, nz(cDn1h) == 1), bgcolor=nz(cUp1h) == 1 or nz(cSt1h) == 1 ? color.rgb(0, 90, 0) : nz(cDn1h) == 1 ? color.rgb(90, 20, 25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 1, nz(cAb1h) == 1 ? "صورتی بالای زرد ✓" : "صورتی زیر زرد ✗", bgcolor=bg, text_color=nz(cAb1h) == 1 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 2, "RSI 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 2, "RSI " + f_num(cR5, "#.#") + " | MA " + f_num(cMa5, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 2, f_rsiState(nz(cUp5) == 1, nz(cSt5) == 1, nz(cDn5) == 1), bgcolor=nz(cUp5) == 1 or nz(cSt5) == 1 ? color.rgb(0, 90, 0) : nz(cDn5) == 1 ? color.rgb(90, 20, 25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 2, nz(cAb5) == 1 ? "صورتی بالای زرد ✓" : "صورتی زیر زرد ✗", bgcolor=bg, text_color=nz(cAb5) == 1 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 3, "RSI 1m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 3, "RSI " + f_num(cR1, "#.#") + " | MA " + f_num(cMa1, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 3, f_rsiState(nz(cUp1) == 1, nz(cSt1) == 1, nz(cDn1) == 1), bgcolor=nz(cUp1) == 1 or nz(cSt1) == 1 ? color.rgb(0, 90, 0) : nz(cDn1) == 1 ? color.rgb(90, 20, 25) : bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 3, nz(cAb1) == 1 ? "صورتی بالای زرد ✓" : "صورتی زیر زرد ✗", bgcolor=bg, text_color=nz(cAb1) == 1 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 4, "MACD 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 4, "hist " + f_num(cMh, "#.####"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 4, nz(cMh) >= 0 ? "🟢 سبز" : nz(cMhR) == 1 ? "🔴↑ در حال بالا آمدن" : "🔴↓ رو به پایین", bgcolor=nz(cMh) >= 0 ? color.rgb(0, 90, 0) : color.rgb(90, 20, 25), text_color=color.white, text_size=ts)
+    table.cell(tA, 3, 4, nz(cMh) >= 0 ? "✓" : "✗", bgcolor=bg, text_color=nz(cMh) >= 0 ? color.green : color.red, text_size=ts)
+
+    table.cell(tA, 0, 5, "ADX 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 5, f_num(cAv, "#.#") + "  |  +DI " + f_num(cPd, "#.#") + "  −DI " + f_num(cMd, "#.#"), bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 5, nz(cAv) >= adxReady ? "✓ بالای " + str.tostring(adxReady, "#") : nz(cAv) >= adxMin ? "⏳ بین آستانه‌ها (صبر)" : "✗ زیر " + str.tostring(adxMin, "#") + " — ممنوع", bgcolor=bg, text_color=nz(cAv) >= adxReady ? color.green : nz(cAv) >= adxMin ? color.orange : color.red, text_size=ts)
+    table.cell(tA, 3, 5, "", bgcolor=bg, text_size=ts)
+
+    table.cell(tA, 0, 6, "LIQ 5m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 6, "آخرین: " + liq5Latest, bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 6, liq5Other, bgcolor=bg, text_color=color.silver, text_size=ts)
+    table.cell(tA, 3, 6, nz(cLiq5t) == 1 ? "🟢" : nz(cLiq5t) == 2 ? "🔴" : "—", bgcolor=bg, text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 7, "LIQ 1m", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 7, "آخرین: " + liq1Latest, bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 7, liq1Other, bgcolor=bg, text_color=color.silver, text_size=ts)
+    table.cell(tA, 3, 7, nz(cLiq1t) == 1 ? "🟢" : nz(cLiq1t) == 2 ? "🔴" : "—", bgcolor=bg, text_color=color.white, text_size=ts)
+
+    table.cell(tA, 0, 8, "SPACE", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 8, f_num(longSpace, "#.##") + "%", bgcolor=bg, text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 8, spaceTxt, bgcolor=bg, text_color=color.silver, text_size=ts)
+    table.cell(tA, 3, 8, "", bgcolor=bg, text_size=ts)
+
+    table.cell(tA, 0, 9, "📋 دلایل", bgcolor=hd, text_color=color.white, text_size=ts)
+    table.cell(tA, 1, 9, cWhy == "" ? "✅ همه فیلترها سبز است" : cWhy, bgcolor=color.rgb(15, 15, 15), text_color=color.white, text_size=ts)
+    table.cell(tA, 2, 9, "", bgcolor=color.rgb(15, 15, 15), text_size=ts)
+    table.cell(tA, 3, 9, "", bgcolor=color.rgb(15, 15, 15), text_size=ts)
+
+    // ── Table B: 6-symbol watchlist ──
+    table.clear(tB, 0, 0, 9, 6)
+    if showWatch
+        table.cell(tB, 0, 0, "#", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 0, "نماد", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 0, "نمره/10", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 3, 0, "RSI 1H", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 0, "RSI 5m", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 0, "RSI 1m", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 0, "MACD", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 0, "ADX", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 8, 0, "LIQ 5/1", bgcolor=hd, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 0, "تصمیم", bgcolor=hd, text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 1, "1", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 1, sym1, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 1, f_num(sScore1, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel1), text_size=ts)
+        table.cell(tB, 3, 1, f_dot(nz(w1hUp_1) == 1 or nz(w1hSt_1) == 1, nz(w1hDn_1) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 1, f_dot(nz(w5Up_1) == 1 or nz(w5St_1) == 1, nz(w5Dn_1) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 1, f_dot(nz(w1Up_1) == 1 or nz(w1St_1) == 1, nz(w1Dn_1) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 1, nz(w5Mh_1) >= 0 ? "🟢" : nz(w5MhR_1) == 1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 1, f_num(w5Av_1, "#.#"), bgcolor=bg, text_color=nz(w5Av_1) >= adxReady ? color.green : nz(w5Av_1) >= adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 1, (nz(w5Lt_1) == 1 ? "🟢" : nz(w5Lt_1) == 2 ? "🔴" : "—") + (nz(w1Lt_1) == 1 ? "🟢" : nz(w1Lt_1) == 2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 1, sLevel1 == 1 ? "✅ ورود" : sLevel1 == 2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel1), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 2, "2", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 2, sym2, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 2, f_num(sScore2, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel2), text_size=ts)
+        table.cell(tB, 3, 2, f_dot(nz(w1hUp_2) == 1 or nz(w1hSt_2) == 1, nz(w1hDn_2) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 2, f_dot(nz(w5Up_2) == 1 or nz(w5St_2) == 1, nz(w5Dn_2) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 2, f_dot(nz(w1Up_2) == 1 or nz(w1St_2) == 1, nz(w1Dn_2) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 2, nz(w5Mh_2) >= 0 ? "🟢" : nz(w5MhR_2) == 1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 2, f_num(w5Av_2, "#.#"), bgcolor=bg, text_color=nz(w5Av_2) >= adxReady ? color.green : nz(w5Av_2) >= adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 2, (nz(w5Lt_2) == 1 ? "🟢" : nz(w5Lt_2) == 2 ? "🔴" : "—") + (nz(w1Lt_2) == 1 ? "🟢" : nz(w1Lt_2) == 2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 2, sLevel2 == 1 ? "✅ ورود" : sLevel2 == 2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel2), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 3, "3", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 3, sym3, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 3, f_num(sScore3, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel3), text_size=ts)
+        table.cell(tB, 3, 3, f_dot(nz(w1hUp_3) == 1 or nz(w1hSt_3) == 1, nz(w1hDn_3) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 3, f_dot(nz(w5Up_3) == 1 or nz(w5St_3) == 1, nz(w5Dn_3) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 3, f_dot(nz(w1Up_3) == 1 or nz(w1St_3) == 1, nz(w1Dn_3) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 3, nz(w5Mh_3) >= 0 ? "🟢" : nz(w5MhR_3) == 1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 3, f_num(w5Av_3, "#.#"), bgcolor=bg, text_color=nz(w5Av_3) >= adxReady ? color.green : nz(w5Av_3) >= adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 3, (nz(w5Lt_3) == 1 ? "🟢" : nz(w5Lt_3) == 2 ? "🔴" : "—") + (nz(w1Lt_3) == 1 ? "🟢" : nz(w1Lt_3) == 2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 3, sLevel3 == 1 ? "✅ ورود" : sLevel3 == 2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel3), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 4, "4", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 4, sym4, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 4, f_num(sScore4, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel4), text_size=ts)
+        table.cell(tB, 3, 4, f_dot(nz(w1hUp_4) == 1 or nz(w1hSt_4) == 1, nz(w1hDn_4) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 4, f_dot(nz(w5Up_4) == 1 or nz(w5St_4) == 1, nz(w5Dn_4) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 4, f_dot(nz(w1Up_4) == 1 or nz(w1St_4) == 1, nz(w1Dn_4) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 4, nz(w5Mh_4) >= 0 ? "🟢" : nz(w5MhR_4) == 1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 4, f_num(w5Av_4, "#.#"), bgcolor=bg, text_color=nz(w5Av_4) >= adxReady ? color.green : nz(w5Av_4) >= adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 4, (nz(w5Lt_4) == 1 ? "🟢" : nz(w5Lt_4) == 2 ? "🔴" : "—") + (nz(w1Lt_4) == 1 ? "🟢" : nz(w1Lt_4) == 2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 4, sLevel4 == 1 ? "✅ ورود" : sLevel4 == 2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel4), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 5, "5", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 5, sym5, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 5, f_num(sScore5, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel5), text_size=ts)
+        table.cell(tB, 3, 5, f_dot(nz(w1hUp_5) == 1 or nz(w1hSt_5) == 1, nz(w1hDn_5) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 5, f_dot(nz(w5Up_5) == 1 or nz(w5St_5) == 1, nz(w5Dn_5) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 5, f_dot(nz(w1Up_5) == 1 or nz(w1St_5) == 1, nz(w1Dn_5) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 5, nz(w5Mh_5) >= 0 ? "🟢" : nz(w5MhR_5) == 1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 5, f_num(w5Av_5, "#.#"), bgcolor=bg, text_color=nz(w5Av_5) >= adxReady ? color.green : nz(w5Av_5) >= adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 5, (nz(w5Lt_5) == 1 ? "🟢" : nz(w5Lt_5) == 2 ? "🔴" : "—") + (nz(w1Lt_5) == 1 ? "🟢" : nz(w1Lt_5) == 2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 5, sLevel5 == 1 ? "✅ ورود" : sLevel5 == 2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel5), text_color=color.white, text_size=ts)
+
+        table.cell(tB, 0, 6, "6", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 1, 6, sym6, bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 2, 6, f_num(sScore6, "#.##"), bgcolor=bg, text_color=f_scoreColor(sLevel6), text_size=ts)
+        table.cell(tB, 3, 6, f_dot(nz(w1hUp_6) == 1 or nz(w1hSt_6) == 1, nz(w1hDn_6) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 4, 6, f_dot(nz(w5Up_6) == 1 or nz(w5St_6) == 1, nz(w5Dn_6) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 5, 6, f_dot(nz(w1Up_6) == 1 or nz(w1St_6) == 1, nz(w1Dn_6) == 1), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 6, 6, nz(w5Mh_6) >= 0 ? "🟢" : nz(w5MhR_6) == 1 ? "🔴↑" : "🔴↓", bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 7, 6, f_num(w5Av_6, "#.#"), bgcolor=bg, text_color=nz(w5Av_6) >= adxReady ? color.green : nz(w5Av_6) >= adxMin ? color.orange : color.red, text_size=ts)
+        table.cell(tB, 8, 6, (nz(w5Lt_6) == 1 ? "🟢" : nz(w5Lt_6) == 2 ? "🔴" : "—") + (nz(w1Lt_6) == 1 ? "🟢" : nz(w1Lt_6) == 2 ? "🔴" : "—"), bgcolor=bg, text_color=color.white, text_size=ts)
+        table.cell(tB, 9, 6, sLevel6 == 1 ? "✅ ورود" : sLevel6 == 2 ? "⏳ صبر" : "❌ ناورود", bgcolor=f_verdictBg(sLevel6), text_color=color.white, text_size=ts)
+
+// ─────────────────── ALERTS ───────────────────
+goSig = cLevel == 1
+waitSig = cLevel == 2
+anyWatchGO = sLevel1 == 1 or sLevel2 == 1 or sLevel3 == 1 or sLevel4 == 1 or sLevel5 == 1 or sLevel6 == 1
+
+alertcondition(goSig, "RO6TF Decision — ورود", "RO6TF: همه فیلترهای سیستم سبز شد — ورود")
+alertcondition(waitSig, "RO6TF Decision — صبر", "RO6TF: نماد در حال نزدیک شدن به ورود کامل است")
+alertcondition(anyWatchGO, "RO6TF Decision — Watchlist", "RO6TF: یکی از ۶ نماد لیست روی وضعیت ورود است")

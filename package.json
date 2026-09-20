@@ -1,0 +1,14 @@
+{
+  "name": "ro6tf-v4-scanner",
+  "version": "4.0.0",
+  "description": "RO6TF V4 — اسکنر ورود کریپتو با فیلتر BTC+VOL+SPACE+Overbought",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["crypto", "tradingview", "scanner", "bitget"],
+  "license": "MIT"
+}

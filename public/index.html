@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RO6TF — اسکنر ورود کریپتو فیوچرز</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#11161d; --panel2:#0e1319; --border:#1e2630;
+    --text:#e6edf3; --dim:#8b98a5; --dimmer:#5b6773;
+    --green:#22c55e; --orange:#f59e0b; --red:#ef4444; --pink:#ff6b9d; --yellow:#ffd166;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{background:var(--bg); color:var(--text); font-family:Tahoma,'Segoe UI',sans-serif; font-size:13px; padding:14px}
+  h1{font-size:19px; font-weight:700}
+  .sub{color:var(--dim); font-size:11.5px; margin-top:3px}
+  header{display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; margin-bottom:12px}
+  .brand{flex:1; min-width:260px}
+  .controls{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+  label.ctl{color:var(--dim); font-size:11.5px; display:flex; flex-direction:column; gap:3px}
+  select,input[type=number],input[type=text]{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 8px; font-size:12.5px; font-family:inherit;
+  }
+  input[type=checkbox]{accent-color:var(--green)}
+  button{
+    background:linear-gradient(180deg,#16a34a,#15803d); color:#fff; border:0; border-radius:7px;
+    padding:8px 18px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  button:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.5; cursor:default}
+  button.ghost{background:var(--panel2); border:1px solid var(--border); color:var(--text); font-weight:400}
+  .progress-wrap{height:6px; background:var(--panel2); border-radius:3px; overflow:hidden; margin:0 0 12px; display:none}
+  .progress-wrap.show{display:block}
+  .progress-bar{height:100%; width:0%; background:linear-gradient(90deg,#16a34a,#4ade80); transition:width .4s}
+  .progress-text{color:var(--dim); font-size:11px; margin-bottom:8px; display:none}
+  .progress-text.show{display:block}
+  .filterbar{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:10px}
+  .chip{padding:4px 10px; border-radius:20px; border:1px solid var(--border); background:var(--panel2); cursor:pointer; font-size:11.5px; color:var(--dim); user-select:none}
+  .chip.active{background:#123524; border-color:#1d6b40; color:#86efac}
+  .updated{color:var(--dimmer); font-size:11px; margin-right:auto}
+  table{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden}
+  thead th{background:#0d1218; color:var(--dim); font-size:11px; font-weight:400; padding:8px 6px; text-align:center; border-bottom:1px solid var(--border); white-space:nowrap}
+  tbody td{padding:8px 6px; text-align:center; border-bottom:1px solid #141b23; white-space:nowrap}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#151d26}
+  tbody tr:last-child td{border-bottom:0}
+  .sym{font-weight:700; direction:ltr; unicode-bidi:embed}
+  .sym small{display:block; color:var(--dimmer); font-weight:400; font-size:10px}
+  .price{direction:ltr; unicode-bidi:embed; font-variant-numeric:tabular-nums}
+  .chg.up{color:var(--green)} .chg.down{color:var(--red)}
+  .score-cell{min-width:110px}
+  .score-num{font-weight:800; font-size:14px; direction:ltr; unicode-bidi:embed}
+  .score-bar{height:5px; background:#1a222c; border-radius:3px; margin-top:4px; overflow:hidden}
+  .score-fill{height:100%; border-radius:3px}
+  .dot{font-size:12px}
+  .badge{padding:3px 10px; border-radius:14px; font-size:11.5px; font-weight:700; white-space:nowrap}
+  .badge.GO{background:#123524; color:#4ade80; border:1px solid #1d6b40}
+  .badge.WAIT{background:#3a2a10; color:#fbbf24; border:1px solid #7c5a12}
+  .badge.NO{background:#1a1416; color:#f87171; border:1px solid #5b2530}
+  .liqcell{font-size:11px; direction:ltr; unicode-bidi:embed}
+  .err{color:var(--red); font-size:11px}
+  footer{margin-top:14px; color:var(--dimmer); font-size:10.5px; line-height:1.8}
+  /* modal */
+  .overlay{position:fixed; inset:0; background:rgba(4,8,12,.8); display:none; z-index:50; overflow-y:auto; padding:18px}
+  .overlay.show{display:block}
+  .modal{max-width:860px; margin:0 auto; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px}
+  .m-head{display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px}
+  .m-head .sym{font-size:18px}
+  .m-close{margin-inline-start:auto; background:var(--panel2); border:1px solid var(--border); color:var(--dim); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12px}
+  .verdict{border-radius:10px; padding:12px 14px; font-size:15px; font-weight:800; margin-bottom:14px; line-height:1.7}
+  .verdict small{display:block; font-weight:400; font-size:11.5px; color:var(--dim); margin-top:2px}
+  .verdict.GO{background:#0d2b1a; border:1px solid #1d6b40; color:#4ade80}
+  .verdict.WAIT{background:#2d2110; border:1px solid #7c5a12; color:#fbbf24}
+  .verdict.NO{background:#2b1216; border:1px solid #7f1d1d; color:#f87171}
+  .sec-title{color:var(--dim); font-size:11.5px; margin:16px 0 8px; border-bottom:1px solid var(--border); padding-bottom:5px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  @media(max-width:700px){.grid2{grid-template-columns:1fr}}
+  .card{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:10px 12px}
+  .card h4{font-size:12px; color:var(--text); margin-bottom:8px; font-weight:700}
+  .krow{display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px dashed #1a222c; font-size:12px; flex-wrap:wrap}
+  .krow:last-child{border-bottom:0}
+  .krow .tf{min-width:34px; font-weight:700; color:var(--dim); direction:ltr}
+  .krow .val{color:var(--dim); font-size:11px; direction:ltr; unicode-bidi:embed}
+  .ok{color:var(--green); font-weight:700}
+  .no{color:var(--red); font-weight:700}
+  .warn{color:var(--orange); font-weight:700}
+  .spark{width:100%; height:auto; display:block; margin-top:6px}
+  .spark svg{display:block}
+  .legend{display:flex; gap:12px; font-size:10px; color:var(--dim); margin-top:2px}
+  .legend i{display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin-left:4px}
+  .big-val{font-size:22px; font-weight:800; direction:ltr; unicode-bidi:embed}
+  .chips{display:flex; flex-wrap:wrap; gap:5px}
+  .qchip{padding:2px 8px; border-radius:10px; font-size:10.5px; background:#1a222c; color:var(--dim)}
+  .qchip.on{background:#123524; color:#86efac}
+  .reason{padding:5px 0; font-size:12px; line-height:1.7}
+  .reason.fail{color:#f87171}
+  .reason.miss{color:#fbbf24}
+  .reason.warnc{color:#a3a3a3}
+  .confluence{color:#86efac; font-size:12px; line-height:2}
+  .loading{color:var(--dim); padding:40px; text-align:center}
+  .searchbox{display:flex; gap:6px; align-items:center}
+  .searchbox input{width:150px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>⚡ RO6TF — اسکنر ورود کریپتو فیوچرز</h1>
+    <div class="sub">بازار را خودکار اسکن می‌کند و هر نماد را با نمره دهیِ سیستم تو (RSI سه تایم‌فریم + MACD + ADX + نقدینگی) رتبه‌بندی می‌کند. روی هر نماد کلیک کن تا بگوید «ورود» یا «ناورود».</div>
+  </div>
+  <div class="controls">
+    <label class="ctl">منبع داده
+      <select id="srcSel">
+        <option value="bitget" selected>Bitget — فیوچرز USDT-M</option>
+        <option value="binance">Binance — فید اسپات</option>
+      </select>
+    </label>
+    <label class="ctl">تعداد نماد
+      <input type="number" id="nInput" value="60" min="10" max="200" step="10" style="width:70px">
+    </label>
+    <label class="ctl">ریفرش خودکار
+      <select id="autoSel">
+        <option value="60" selected>هر ۶۰ ثانیه</option>
+        <option value="120">هر ۲ دقیقه</option>
+        <option value="0">خاموش</option>
+      </select>
+    </label>
+    <div class="searchbox">
+      <input type="text" id="symSearch" placeholder="بررسی نماد خاص… (مثلاً AKEUSDT)">
+      <button class="ghost" id="searchBtn">بررسی</button>
+    </div>
+    <button id="scanBtn">🔄 اسکن بازار</button>
+  </div>
+</header>
+
+<div class="progress-text" id="progText"></div>
+<div class="progress-wrap" id="progWrap"><div class="progress-bar" id="progBar"></div></div>
+
+<div class="filterbar">
+  <span class="chip active" data-f="all">همه</span>
+  <span class="chip" data-f="GO">✅ آماده ورود</span>
+  <span class="chip" data-f="WAIT">⏳ در حال نزدیک شدن</span>
+  <span class="chip" data-f="NO">❌ فیلتر شده</span>
+  <label class="ctl" style="flex-direction:row; gap:6px; align-items:center">حداقل نمره
+    <input type="number" id="minScore" value="0" min="0" max="10" step="0.5" style="width:64px">
+  </label>
+  <button class="ghost" id="top6Btn" style="margin-right:8px; background:#1a2a1a; border-color:#2a5a2a; color:#86efac">🏆 ۶ تا برتر V4 برای TradingView</button>
+  <span class="updated" id="updated"></span>
+</div>
+
+<div id="top6Box" style="display:none; background:var(--panel); border:1px solid #2a5a2a; border-radius:10px; padding:12px 14px; margin-bottom:12px">
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+    <strong style="color:#86efac">🏆 ۶ نماد برتر V4 (خودکار - با فیلتر BTC+VOL+SPACE)</strong>
+    <span id="top6Time" style="color:var(--dimmer); font-size:11px"></span>
+    <button id="copyTop6" style="margin-inline-start:auto; padding:6px 12px; font-size:12px">📋 کپی برای TradingView</button>
+    <button id="closeTop6" class="ghost" style="padding:6px 10px">✕</button>
+  </div>
+  <div id="top6List" style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px"></div>
+  <div style="margin-top:10px">
+    <div style="color:var(--dim); font-size:11px; margin-bottom:4px">کد Pine برای Paste تو تنظیمات:</div>
+    <pre id="pineCode" style="background:var(--panel2); border:1px solid var(--border); border-radius:6px; padding:8px; font-size:11px; direction:ltr; text-align:left; overflow:auto; white-space:pre-wrap"></pre>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>نماد</th><th>قیمت</th><th>۲۴h</th>
+      <th>نمره /۱۰</th>
+      <th>RSI 1H</th><th>RSI 5m</th><th>RSI 1m</th>
+      <th>MACD 5m</th><th>ADX 5m</th><th>LIQ 5m/1m</th>
+      <th>وضعیت</th>
+    </tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<footer>
+  ⚙️ نمره دهی سیستم: RSI ۱ساعته کمان صعودی (۲) + RSI ۵دقیقه (۲) + RSI ۱دقیقه (۱) + MACD ۵m سبز (۱٫۵) + ADX بالای ۲۳ (۱.۵) + LIQ ۵m سبز (۱) + LIQ ۱m سبز (۱).
+  <br>📌 محاسبات روی شمع‌های بسته انجام می‌شود (مربوط به Pine Script، بدون ریپینت). داده: کندل‌های واقعی بازار — این ابزار کمک فنی است، نه توصیه مالی. مدیریت سرمایه خود را فراموش نکن.
+</footer>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const state = {
+  source: 'bitget',
+  n: 60,
+  data: null,
+  scanning: false,
+  filter: 'all',
+  minScore: 0,
+  autoTimer: null,
+  pollTimer: null,
+  detailOpen: null,
+};
+
+/* ---------- formatting ---------- */
+function fmtPrice(p){
+  if (p == null || !isFinite(p)) return '—';
+  if (p >= 1000) return p.toLocaleString('en-US', {maximumFractionDigits: 2});
+  if (p >= 10) return p.toFixed(3);
+  if (p >= 1) return p.toFixed(4);
+  return p.toPrecision(4);
+}
+function fmtVol(v){
+  if (v == null) return '—';
+  if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v/1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v/1e3).toFixed(0) + 'K';
+  return String(v);
+}
+function fmtNum(x, d=1){ return x == null || !isFinite(x) ? '—' : x.toFixed(d); }
+function fmtTime(ts){
+  const d = new Date(ts);
+  return d.toLocaleTimeString('fa-IR', {hour:'2-digit', minute:'2-digit'});
+}
+
+/* ---------- sparklines (inline SVG) ---------- */
+function svgOpen(w, h){ return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">`; }
+function pathFrom(data, x0, yFor, w){
+  // data: array; returns path 'd' with gaps at NaN
+  let d = '', pen = false;
+  const n = data.length;
+  for (let i = 0; i < n; i++){
+    const v = data[i];
+    if (v == null || !isFinite(v)) { pen = false; continue; }
+    const x = x0(i, n, w);
+    const y = yFor(v);
+    d += (pen ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+    pen = true;
+  }
+  return d;
+}
+function rsiSpark(rsi, ma, w=320, h=74){
+  const pad = 4;
+  const yFor = (v) => h - pad - (v/100) * (h - 2*pad);
+  const xFor = (i, n) => pad + (i / (n-1)) * (w - 2*pad);
+  let s = svgOpen(w, h);
+  // grid
+  for (const g of [20,50,80]){
+    const y = yFor(g);
+    s += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="#1a222c" stroke-width="1" stroke-dasharray="3 4"/>`;
+  }
+  s += `<line x1="0" y1="${yFor(80)}" x2="${w}" y2="${yFor(80)}" stroke="#3f1d2b" stroke-width="1"/>`;
+  s += `<line x1="0" y1="${yFor(20)}" x2="${w}" y2="${yFor(20)}" stroke="#14351f" stroke-width="1"/>`;
+  s += `<path d="${pathFrom(ma, xFor, yFor, w)}" fill="none" stroke="#ffd166" stroke-width="1.6"/>`;
+  s += `<path d="${pathFrom(rsi, xFor, yFor, w)}" fill="none" stroke="#ff6b9d" stroke-width="1.6"/>`;
+  s += '</svg>';
+  return s;
+}
+function macdSpark(data, w=320, h=54){
+  const n = data.length;
+  const vals = data.filter(v => isFinite(v));
+  const mx = Math.max(1e-9, ...vals.map(Math.abs));
+  const mid = h/2, pad = 4;
+  let s = svgOpen(w, h);
+  s += `<line x1="0" y1="${mid}" x2="${w}" y2="${mid}" stroke="#26303c" stroke-width="1"/>`;
+  const bw = (w - 2*pad) / n;
+  for (let i = 0; i < n; i++){
+    const v = data[i];
+    if (v == null || !isFinite(v)) continue;
+    const bh = (v / mx) * (mid - pad);
+    const x = pad + i * bw;
+    s += `<rect x="${x.toFixed(1)}" y="${(v>=0 ? mid-bh : mid).toFixed(1)}" width="${Math.max(1, bw*0.7).toFixed(1)}" height="${Math.max(1, Math.abs(bh)).toFixed(1)}" fill="${v>=0 ? '#22c55e' : '#ef4444'}" opacity="0.85"/>`;
+  }
+  s += '</svg>';
+  return s;
+}
+function priceSpark(close, e20, e50, w=340, h=80){
+  const all = [...close, ...e20, ...e50].filter(v => isFinite(v));
+  const mn = Math.min(...all), mx = Math.max(...all);
+  const span = (mx - mn) || 1;
+  const pad = 5;
+  const yFor = (v) => h - pad - ((v - mn)/span) * (h - 2*pad);
+  const xFor = (i, n) => pad + (i/(n-1)) * (w - 2*pad);
+  let s = svgOpen(w, h);
+  s += `<path d="${pathFrom(e50, xFor, yFor, w)}" fill="none" stroke="#60a5fa" stroke-width="1.3" opacity="0.8"/>`;
+  s += `<path d="${pathFrom(e20, xFor, yFor, w)}" fill="none" stroke="#ffd166" stroke-width="1.3" opacity="0.9"/>`;
+  s += `<path d="${pathFrom(close, xFor, yFor, w)}" fill="none" stroke="#e6edf3" stroke-width="1.6"/>`;
+  s += '</svg>';
+  return s;
+}
+
+/* ---------- table ---------- */
+function rsiDot(r){
+  if (!r) return '<span class="dot" style="color:#5b6773">—</span>';
+  if (r.up) return '<span class="dot" style="color:#22c55e">●</span>';
+  if (r.down) return '<span class="dot" style="color:#ef4444">●</span>';
+  return '<span class="dot" style="color:#f59e0b">●</span>';
+}
+function liqCell(s){
+  const icon = (t) => t === 1 ? '🟢' : t === 2 ? '🔴' : '—';
+  return `<span class="liqcell">${icon(s.liq['5m'])} ${icon(s.liq['1m'])}</span>`;
+}
+function adxCell(v){
+  if (v == null) return '—';
+  const cls = v >= 23 ? 'ok' : v >= 20 ? 'warn' : 'no';
+  return `<span class="${cls}">${v.toFixed(1)}</span>`;
+}
+function scoreColor(score, level){
+  if (level === 'GO') return '#22c55e';
+  if (level === 'WAIT') return score >= 8 ? '#f59e0b' : '#fbbf24';
+  return '#f87171';
+}
+function badge(lv){
+  if (lv === 'GO') return '<span class="badge GO">✅ ورود</span>';
+  if (lv === 'WAIT') return '<span class="badge WAIT">⏳ صبر</span>';
+  return '<span class="badge NO">❌ ناورود</span>';
+}
+function renderTable(){
+  const rowsEl = $('#rows');
+  if (!state.data){
+    rowsEl.innerHTML = '<tr><td colspan="12" class="loading">در حال بارگذاری…</td></tr>';
+    return;
+  }
+  let syms = state.data.symbols.filter(s => !s.error);
+  syms.sort((a, b) => (b.score - a.score) || ((b.volume||0) - (a.volume||0)));
+  if (state.filter !== 'all') syms = syms.filter(s => s.level === state.filter);
+  if (state.minScore > 0) syms = syms.filter(s => s.score >= state.minScore);
+  const errs = state.data.symbols.filter(s => s.error).length;
+  const html = syms.map((s, i) => {
+    const col = scoreColor(s.score, s.level);
+    const chg = s.change == null ? '' : (s.change >= 0 ? '+' : '') + s.change.toFixed(2) + '%';
+    const chgCls = s.change >= 0 ? 'up' : 'down';
+    const macd = s.macd.green ? '<span class="ok">🟢</span>' : (s.macd.rising ? '<span class="warn">🔴↑</span>' : '<span class="no">🔴↓</span>');
+    return `<tr data-sym="${s.symbol}">
+      <td style="color:var(--dimmer)">${i+1}</td>
+      <td class="sym">${s.symbol.replace('USDT','')}<small>${fmtVol(s.volume)} USDT</small></td>
+      <td class="price">${fmtPrice(s.price)}</td>
+      <td class="chg ${chgCls}">${chg}</td>
+      <td class="score-cell">
+        <span class="score-num" style="color:${col}">${s.score.toFixed(1).replace(/\.0$/,'')}</span>
+        <div class="score-bar"><div class="score-fill" style="width:${s.score*10}%; background:${col}"></div></div>
+      </td>
+      <td>${rsiDot(s.rsi['1H'])}</td>
+      <td>${rsiDot(s.rsi['5m'])}</td>
+      <td>${rsiDot(s.rsi['1m'])}</td>
+      <td>${macd}</td>
+      <td>${adxCell(s.adx.value)}</td>
+      <td>${liqCell(s)}</td>
+      <td>${badge(s.level)}</td>
+    </tr>`;
+  }).join('');
+  rowsEl.innerHTML = html || '<tr><td colspan="12" class="loading">نمادی با این فیلتر پیدا نشد</td></tr>';
+  const nGO = syms.filter(s => s.level === 'GO').length;
+  const nW = syms.filter(s => s.level === 'WAIT').length;
+  $('#updated').textContent = `آخرین به‌روزرسانی: ${fmtTime(state.data.updatedAt)} | ${syms.length} نماد | ${nGO} آماده | ${nW} در حال نزدیک شدن` + (errs ? ` | ${errs} خطا` : '');
+}
+
+/* ---------- modal ---------- */
+function verdictHTML(s){
+  const conf = `NWE صعودی: ${s.nweAligned}/3 | PA صعودی: ${s.paAlign}/3 | RO سبز: ${s.roCount}/5`;
+  if (s.level === 'GO') return `<div class="verdict GO">✅ ورود — تمام فیلترهای سیستم سبز است<small>${conf} — ورود طبق سیستم توست</small></div>`;
+  if (s.level === 'WAIT') return `<div class="verdict WAIT">⏳ صبر کن — ${s.missing.length + s.fails.length} مورد تا ورود کامل کم است<small>به‌محض سبز شدن موارد زیر، سیگنال کامل می‌شود</small></div>`;
+  return `<div class="verdict NO">❌ وارد نشو — شرایط ورود برقرار نیست<small>${conf}</small></div>`;
+}
+function rsiRow(tf, r){
+  const above = r.rsiAbove ? '<span class="ok">RSI بالای MA ✓</span>' : '<span class="no">RSI زیر MA ✗</span>';
+  const stCls = r.up ? 'ok' : r.down ? 'no' : 'warn';
+  return `<div class="krow"><span class="tf">${tf}</span><span class="${stCls}">${r.label}</span>
+    <span class="val">RSI ${fmtNum(r.rsi,1)} | MA ${fmtNum(r.ma,1)}</span>${above}</div>`;
+}
+function liqRow(tf, d){
+  if (!d) return '';
+  let main;
+  if (d.type === 1) main = `<span class="ok">🟢 SUP حمایت</span> <span class="val">${fmtPrice(d.support)} (${fmtNum(d.supportDist,2)}% پایین‌تر)</span>`;
+  else if (d.type === 2) main = `<span class="no">🔴 RES مقاومت</span> <span class="val">${fmtPrice(d.resistance)} (${fmtNum(d.resistanceDist,2)}% بالاتر)</span>`;
+  else main = `<span class="warn">— PIVOT فعال نیست</span>`;
+  const other = d.type === 1
+    ? (d.resistance != null ? `<span class="val" style="margin-inline-start:8px">مقاومت: ${fmtPrice(d.resistance)}</span>` : '')
+    : (d.support != null ? `<span class="val" style="margin-inline-start:8px">حمایت: ${fmtPrice(d.support)}</span>` : '');
+  return `<div class="krow"><span class="tf">${tf}</span>${main}${other}</div>`;
+}
+function spaceText(space){
+  if (space == null) return '— مقاومت فعالی نیست (فضای باز)';
+  if (space < 0.30) return `🔴 مقاومت خیلی نزدیک (${fmtNum(space,2)}%)`;
+  if (space < 0.75) return `🟠 مقاومت نزدیک (${fmtNum(space,2)}%)`;
+  if (space < 1.50) return `🟡 فضای متوسط (${fmtNum(space,2)}%)`;
+  return `🟢 فضای خوب (${fmtNum(space,2)}%)`;
+}
+function srRow(label, o, isSup){
+  if (!o || o.level == null) return `<div class="krow"><span class="tf">${label}</span><span class="warn">— سطحی نیست</span></div>`;
+  const stars = o.strength >= 80 ? '★★★★★' : o.strength >= 65 ? '★★★★☆' : o.strength >= 50 ? '★★★☆☆' : o.strength >= 35 ? '★★☆☆☆' : '★☆☆☆☆';
+  const col = isSup ? 'ok' : 'no';
+  return `<div class="krow"><span class="tf">${label}</span><span class="${col}">${isSup ? '🟢' : '🔴'} ${fmtPrice(o.level)}</span>
+    <span class="val">💪 ${Math.round(o.strength)}/100 ${stars} | فاصله ${fmtNum(o.distPct,2)}% | ${o.touches} برخورد</span></div>`;
+}
+function renderDetail(s){
+  const m = $('#modal');
+  const spark = s.spark || {};
+  const q = s.quality5Detail || {};
+  const chgTxt = s.change == null ? '' : `<span class="chg ${s.change>=0?'up':'down'}">${s.change>=0?'+':''}${s.change.toFixed(2)}%</span>`;
+  m.innerHTML = `
+  <div class="m-head">
+    <span class="sym">${s.symbol}</span>
+    <span class="price" style="font-size:14px">${fmtPrice(s.price)} ${chgTxt}</span>
+    <span class="val" style="color:var(--dimmer)">${fmtVol(s.volume)} USDT حجم ۲۴h</span>
+    <button class="m-close" id="mClose">✕ بستن</button>
+  </div>
+  ${verdictHTML(s)}
+
+  <div class="sec-title">📋 فیلترهای سیستم تو (مبنا برای ورود)</div>
+  <div class="grid2">
+    <div class="card">
+      <h4>۱) کمان RSI — خط صورتی = RSI ، خط زرد = MA یصعوب‌شده</h4>
+      ${rsiRow('1H', s.rsi['1H'])}
+      <div class="spark">${rsiSpark(spark.rsi1h?.rsi || [], spark.rsi1h?.ma || [])}</div>
+      ${rsiRow('5m', s.rsi['5m'])}
+      <div class="spark">${rsiSpark(spark.rsi5?.rsi || [], spark.rsi5?.ma || [])}</div>
+      ${rsiRow('1m', s.rsi['1m'])}
+      <div class="spark">${rsiSpark(spark.rsi1?.rsi || [], spark.rsi1?.ma || [])}</div>
+      <div class="legend"><span><i style="background:#ff6b9d"></i>RSI</span><span><i style="background:#ffd166"></i>MA یصعوب‌شده</span><span>کمان صعودی = شیبِ شیب مثبت (نوک به بالا)</span></div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:10px">
+        <h4>۲) MACD ۵ دقیقه</h4>
+        <div class="krow">
+          <span class="${s.macd.green ? 'ok' : 'no'}" style="font-size:14px">${s.macd.green ? '🟢 سبز (هیستوگرام مثبت)' : s.macd.rising ? '🔴 سرخ ولی در حال بالا آمدن' : '🔴 سرخ و رو به پایین'}</span>
+          <span class="val">hist ${fmtNum(s.macd.hist, 4)}</span>
+        </div>
+        <div class="spark">${macdSpark(spark.macdHist || [])}</div>
+      </div>
+      <div class="card" style="margin-bottom:10px">
+        <h4>۳) ADX ۵ دقیقه (باید بالای ۲۳ باشد)</h4>
+        <div class="krow">
+          <span class="big-val ${s.adx.value>=23?'ok':s.adx.value>=20?'warn':'no'}">${fmtNum(s.adx.value,1)}</span>
+          ${s.adx.value >= 23 ? '<span class="ok">✓ بالای ۲۳</span>' : s.adx.value >= 20 ? '<span class="warn">بین ۲۰–۲۳ (هنوز نه)</span>' : '<span class="no">✗ زیر ۲۰ — ورود ممنوع</span>'}
+          <span class="val">+DI ${fmtNum(s.adx.plusDI,1)} | −DI ${fmtNum(s.adx.minusDI,1)}</span>
+        </div>
+      </div>
+      <div class="card">
+        <h4>۴) نقدینگی — PIVOT (باید هر دو سبز/حمایت باشد)</h4>
+        ${liqRow('5m', s.liqDetail?.['5m'])}
+        ${liqRow('1m', s.liqDetail?.['1m'])}
+        <div class="krow"><span class="tf">فضا</span><span>${spaceText(s.space)}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec-title">🔎 چرا ${s.level === 'GO' ? 'ورود' : s.level === 'WAIT' ? 'صبر' : 'ورود نکن'}</div>
+  <div class="grid2">
+    <div class="card">
+      ${s.fails.map(f => `<div class="reason fail">⛔ ${f}</div>`).join('')}
+      ${s.missing.map(f => `<div class="reason miss">⏳ ${f}</div>`).join('')}
+      ${s.warns.map(f => `<div class="reason warnc">⚠️ ${f}</div>`).join('')}
+      ${(!s.fails.length && !s.missing.length && !s.warns.length) ? '<div class="confluence">✅ هیچ فیلتری رد نشده — همه‌چیز سبز است</div>' : ''}
+      ${s.level === 'GO' ? `<div class="confluence">🔥 کنفلوئنس: NWE صعودی ${s.nweAligned}/3 | PA صعودی ${s.paAlign}/3 | RO سبز ${s.roCount}/5 | Stoch ${s.stoch5.floor ? '🟢 FLOOR' : '—'} | کیفیت ${s.quality5}</div>` : ''}
+    </div>
+    <div class="card">
+      <h4>نمودار ۵ دقیقه (قیمت + EMA20/EMA50)</h4>
+      <div class="spark">${priceSpark(spark.price5?.close || [], spark.price5?.ema20 || [], spark.price5?.ema50 || [])}</div>
+      <div class="legend"><span><i style="background:#e6edf3"></i>قیمت</span><span><i style="background:#ffd166"></i>EMA20</span><span><i style="background:#60a5fa"></i>EMA50</span></div>
+    </div>
+  </div>
+
+  <div class="sec-title">📚 اطلاعات تکمیلی (از اسکریپت Pine)</div>
+  <div class="grid2">
+    <div class="card">
+      <h4>Range Oscillator (RO)</h4>
+      <div class="krow">${['1H','15m','5m','3m','1m'].map(tf => `<span class="tf">${tf}</span><span>${s.ro[tf] ? '<span class="ok">🟢</span>' : '—'}</span>`).join('')}
+        <span class="val" style="margin-inline-start:auto">${s.roCount}/5 سبز</span></div>
+      <h4 style="margin-top:10px">Nadaraya-Watson (NWE)</h4>
+      <div class="krow"><span class="tf">1H</span><span>${s.nwe['1H'].text}</span></div>
+      <div class="krow"><span class="tf">5m</span><span>${s.nwe['5m'].text}</span></div>
+      <div class="krow"><span class="tf">1m</span><span>${s.nwe['1m'].text}</span></div>
+    </div>
+    <div class="card">
+      <h4>ساختار بازار (Price Action)</h4>
+      <div class="krow"><span class="tf">1H</span><span>${s.pa['1H'].text}</span></div>
+      <div class="krow"><span class="tf">15m</span><span>${s.pa['15m'].text}</span></div>
+      <div class="krow"><span class="tf">5m</span><span>${s.pa['5m'].text}</span></div>
+      <h4 style="margin-top:10px">Stoch RSI ۵m + کیفیت شمع</h4>
+      <div class="krow"><span class="tf">K</span><span>${fmtNum(s.stoch5.k,1)}</span>${s.stoch5.floor ? '<span class="ok">🟢 0 FLOOR</span>' : ''}
+        <span class="val">D ${fmtNum(s.stoch5.d,1)}</span></div>
+      <div class="krow"><span class="tf">Q</span>
+        <span class="chips">
+          <span class="qchip ${q.adxOK?'on':''}">ADX</span>
+          <span class="qchip ${q.volOK?'on':''}">حجم</span>
+          <span class="qchip ${q.candleOK?'on':''}">شمع</span>
+          <span class="qchip ${q.emaOK?'on':''}">EMA</span>
+          <span class="qchip ${q.atrOK?'on':''}">ATR</span>
+        </span></div>
+      <h4 style="margin-top:10px">سطح‌های PA (۵m)</h4>
+      ${srRow('SUP', s.paSR?.sup, true)}
+      ${srRow('RES', s.paSR?.res, false)}
+    </div>
+  </div>
+  <div style="margin-top:14px; color:var(--dimmer); font-size:10.5px; line-height:1.8">
+    📌 محاسبه روی شمع بسته انجام شده (بدون ریپینت — هم‌فکر Pine Script). این پنل جایگزین چشم خودت نیست؛ عدد ADX، خط‌های RSI و سطوح نقدینگی را همین‌جا دقیق ببین و بعد تصمیم بگیر.
+  </div>`;
+  $('#mClose').onclick = closeModal;
+}
+function openDetail(symbol){
+  const ov = $('#overlay');
+  ov.classList.add('show');
+  document.body.style.overflow = 'hidden';
+  $('#modal').innerHTML = '<div class="loading">در حال تحلیل کامل ' + symbol + ' …</div>';
+  state.detailOpen = symbol;
+  fetch(`/api/detail?source=${state.source}&symbol=${encodeURIComponent(symbol)}`)
+    .then(r => r.json())
+    .then(s => {
+      if (state.detailOpen !== symbol) return;
+      renderDetail(s);
+    })
+    .catch(e => {
+      if (state.detailOpen !== symbol) return;
+      $('#modal').innerHTML = `<div class="loading">خطا در دریافت داده: ${e.message}<br><br>ممکن است این نماد در منبع انتخابی وجود نداشته باشد.</div>`;
+    });
+}
+function closeModal(){
+  $('#overlay').classList.remove('show');
+  document.body.style.overflow = '';
+  state.detailOpen = null;
+}
+
+/* ---------- scanning ---------- */
+function setProgress(pct, text){
+  $('#progBar').style.width = pct + '%';
+  $('#progWrap').classList.add('show');
+  $('#progText').textContent = text;
+  $('#progText').classList.add('show');
+  $('#scanBtn').disabled = true;
+}
+function clearProgress(){
+  $('#progWrap').classList.remove('show');
+  $('#progText').classList.remove('show');
+  $('#scanBtn').disabled = false;
+}
+function stopPolling(){
+  if (state.pollTimer){ clearTimeout(state.pollTimer); state.pollTimer = null; }
+}
+async function safeJson(r){
+  const txt = await r.text();
+  try{ return JSON.parse(txt); }catch(_){ throw new Error(txt.slice(0,200)); }
+}
+function fetchScan(){
+  if (state.scanning) return;
+  state.scanning = true;
+  fetch(`/api/scan?source=${state.source}&n=${state.n}`)
+    .then(async (r) => {
+      if (r.status === 200){
+        state.data = await safeJson(r);
+        state.scanning = false;
+        stopPolling();
+        clearProgress();
+        renderTable();
+      } else if (r.status === 202) {
+        const p = await safeJson(r).catch(()=>({done:0,total:0}));
+        if (p.error) { alert('خطای اسکن: ' + p.error); state.scanning = false; clearProgress(); return; }
+        setProgress(p.total ? (p.done/p.total)*100 : 5, `در حال اسکن بازار… ${p.done||0}/${p.total||0} نماد`);
+        pollProgress();
+      } else {
+        const txt = await r.text();
+        throw new Error('HTTP '+r.status+': '+txt.slice(0,150));
+      }
+    })
+    .catch(e => {
+      state.scanning = false;
+      clearProgress();
+      alert('اتصال به سرور اسکن برقرار نشد: ' + e.message + '\n\n⚠️ نکته: باید از پریویو پورت 8000 باز کنی، نه از پیش‌نمایش فایل. بالا روی RO6TF V4 Scanner - پورت 8000 کلیک کن');
+    });
+}
+function pollProgress(){
+  stopPolling();
+  state.pollTimer = setTimeout(async () => {
+    try {
+      const p = await (await fetch(`/api/scan/progress?source=${state.source}`)).json();
+      if (p.fresh){
+        state.data = await (await fetch(`/api/scan?source=${state.source}&n=${state.n}`)).json();
+        state.scanning = false;
+        stopPolling();
+        clearProgress();
+        renderTable();
+        return;
+      }
+      if (p.error){
+        state.scanning = false;
+        clearProgress();
+        alert('خطای اسکن: ' + p.error);
+        return;
+      }
+      setProgress(p.total ? (p.done/p.total)*100 : 5, `در حال اسکن بازار… ${p.done}/${p.total} نماد`);
+      pollProgress();
+    } catch(e){
+      pollProgress();
+    }
+  }, 1500);
+}
+function startAuto(){
+  if (state.autoTimer) clearInterval(state.autoTimer);
+  const ms = +$('#autoSel').value * 1000;
+  if (ms > 0) state.autoTimer = setInterval(fetchScan, ms);
+}
+
+/* ---------- top6 ---------- */
+function renderTop6(data){
+  const box = $('#top6Box');
+  const list = $('#top6List');
+  const code = $('#pineCode');
+  box.style.display = 'block';
+  $('#top6Time').textContent = 'آپدیت: ' + fmtTime(data.updatedAt) + ' | BTC 5m: ' + (data.btcTrend ? (data.btcTrend.down ? '🔴 نزولی' : data.btcTrend.up||data.btcTrend.startUp ? '🟢 صعودی' : '🟠 رنج') : '—');
+  const html = data.top6.map((s,i) => {
+    const col = s.level === 'GO' ? '#22c55e' : s.level === 'WAIT' ? '#f59e0b' : '#f87171';
+    const badge = s.level === 'GO' ? '✅ ورود' : s.level === 'WAIT' ? '⏳ صبر' : '❌ ناورود';
+    return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:4px">
+      <div style="display:flex; align-items:center; gap:8px"><span style="color:var(--dimmer)">#${i+1}</span><span class="sym" style="font-weight:700">${s.symbol}</span><span style="margin-inline-start:auto; color:${col}; font-weight:800">${s.score}/10</span><span style="font-size:11px; background:${col}22; border:1px solid ${col}; color:${col}; padding:2px 6px; border-radius:10px">${badge}</span></div>
+      <div style="font-size:11px; color:var(--dim)">VOL ${s.volRatio ? s.volRatio.toFixed(2)+'x' : '—'} | SPACE ${s.space!=null? s.space.toFixed(2)+'%':'—'} | ADX ${s.adx!=null? s.adx.toFixed(1):'—'} | ${s.change!=null? (s.change>=0?'+':'')+s.change.toFixed(2)+'%':''}</div>
+      <div style="font-size:10px; color:var(--dimmer)">${(s.fails||[]).slice(0,1).join(' ') || (s.missing||[]).slice(0,1).join(' ') || 'آماده'}</div>
+    </div>`;
+  }).join('');
+  list.innerHTML = html;
+  code.textContent = data.pineInputs;
+  box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+$('#top6Btn').onclick = async () => {
+  $('#top6Btn').textContent = '⏳ در حال محاسبه...';
+  try{
+    const r = await fetch(`/api/top6?source=${state.source}&n=${state.n}`);
+    const j = await r.json();
+    if (r.status === 202){
+      alert(j.message || 'اسکن در حال اجراست، ۵ ثانیه دیگر بزن');
+      setTimeout(() => { $('#top6Btn').textContent = '🏆 ۶ تا برتر V4 برای TradingView'; }, 2000);
+      return;
+    }
+    renderTop6(j);
+  }catch(e){ alert('خطا: '+e.message); }
+  $('#top6Btn').textContent = '🏆 ۶ تا برتر V4 برای TradingView';
+};
+$('#closeTop6').onclick = () => { $('#top6Box').style.display='none'; };
+$('#copyTop6').onclick = () => {
+  const txt = $('#pineCode').textContent;
+  navigator.clipboard.writeText(txt).then(()=>{ $('#copyTop6').textContent='✅ کپی شد!'; setTimeout(()=>{$('#copyTop6').textContent='📋 کپی برای TradingView';},2000); });
+};
+
+/* ---------- events ---------- */
+$('#rows').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-sym]');
+  if (tr) openDetail(tr.dataset.sym);
+});
+$('#scanBtn').onclick = fetchScan;
+$('#srcSel').onchange = () => {
+  state.source = $('#srcSel').value;
+  state.data = null;
+  renderTable();
+  fetchScan();
+};
+$('#nInput').onchange = () => {
+  state.n = Math.max(10, Math.min(200, +$('#nInput').value || 60));
+  fetchScan();
+};
+$('#autoSel').onchange = startAuto;
+$('#minScore').oninput = () => {
+  state.minScore = +$('#minScore').value || 0;
+  renderTable();
+};
+document.querySelectorAll('.chip').forEach(ch => {
+  ch.onclick = () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    ch.classList.add('active');
+    state.filter = ch.dataset.f;
+    renderTable();
+  };
+});
+$('#overlay').addEventListener('click', (e) => { if (e.target === $('#overlay')) closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+$('#searchBtn').onclick = () => {
+  const s = $('#symSearch').value.trim().toUpperCase();
+  if (s) openDetail(s);
+};
+$('#symSearch').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter'){
+    const s = e.target.value.trim().toUpperCase();
+    if (s) openDetail(s);
+  }
+});
+
+/* ---------- init ---------- */
+renderTable();
+fetchScan();
+startAuto();
+</script>
+</body>
+</html>
